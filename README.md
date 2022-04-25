@@ -27,7 +27,7 @@ west flash
 
 Use the monitor Python script to display JSON outputs of also multiple devices.
 ```
-pip3 install serial
+pip3 install pyserial
 python3 monitor.py </dev/tty.dev1> </dev/tty.dev2>
 ```
 
