@@ -138,7 +138,7 @@ static int format_msg_ts_to_json(char *buf, size_t buf_len, struct msg_ts *msg_t
     return snprintf(buf, buf_len, "{\"addr\": \"0x%04X\", \"sn\": %d, \"ts\": %llu}", addr, msg_ts->sn, ts);
 }
 
-static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t num_ts) {
+static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t num_ts, float *clock_ratio_offset) {
     if (num_ts == 0) {
         uart_out("{}");
         return;
@@ -147,9 +147,19 @@ static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t nu
     // write open parentheses
     uart_out("{ \"type\": \"");
     uart_out(type);
-    uart_out("\", \"tx\": ");
+    uart_out("\", ");
 
     char buf[256];
+
+    if (clock_ratio_offset != NULL) {
+        snprintf(buf, sizeof(buf), "\"clock_ratio_offset\": %f", *clock_ratio_offset);
+        uart_out(buf);
+    }
+
+
+    uart_out(", \"tx\": ");
+
+
     int ret = 0;
     ret = format_msg_ts_to_json(buf, sizeof(buf), &msg_ts_arr[0]);
 
@@ -229,9 +239,9 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 num_receptions++;
                 k_sem_give(&msg_tx_buf_sem);
             }
-
+            float cor = dwt_rx_clock_ratio_offset(ieee802154_dev);
             // and simply dump this whole message to the output
-            output_msg_to_uart("rx", rx_msg, num_msg);
+            output_msg_to_uart("rx", rx_msg, num_msg, &cor);
         } else {
             LOG_WRN("Got weird data of length %d", len);
             net_pkt_hexdump(pkt, "<");
@@ -320,7 +330,7 @@ static void tx_thread(void)
                 LOG_ERR("TX: Error transmitting data!");
             } else {
 
-                output_msg_to_uart("tx", msg_tx_buf, MIN(NUM_MSG_TS, num_receptions+1));
+                output_msg_to_uart("tx", msg_tx_buf, MIN(NUM_MSG_TS, num_receptions+1), NULL);
 
                 msg_tx_buf[0].sn++;
                 sent_packets++;

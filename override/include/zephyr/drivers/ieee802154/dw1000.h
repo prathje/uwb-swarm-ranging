@@ -44,6 +44,8 @@ uint64_t dwt_calculate_actual_tx_ts(uint32_t planned_short_ts, uint16_t tx_anten
 
 void dwt_set_frame_filter(const struct device *dev, bool ff_enable, uint8_t ff_type);
 
+float dwt_rx_clock_ratio_offset(const struct device *dev);
+
 uint8_t *dwt_get_mac(const struct device *dev);
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_IEEE802154_DW1000_H_ */
