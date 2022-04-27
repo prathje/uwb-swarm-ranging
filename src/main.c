@@ -152,12 +152,12 @@ static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t nu
     char buf[256];
 
     if (clock_ratio_offset != NULL) {
-        snprintf(buf, sizeof(buf), "\"clock_ratio_offset\": %f", *clock_ratio_offset);
+        snprintf(buf, sizeof(buf), "\"clock_ratio_offset\": %f, ", *clock_ratio_offset);
         uart_out(buf);
     }
 
 
-    uart_out(", \"tx\": ");
+    uart_out("\"tx\": ");
 
 
     int ret = 0;
@@ -347,6 +347,6 @@ static void tx_thread(void)
 
         net_pkt_unref(pkt);
 
-        k_msleep(1000);
+        k_msleep(250);
     }
 }
