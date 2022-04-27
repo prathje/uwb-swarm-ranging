@@ -151,12 +151,11 @@ def calc_tdoa_alt_twr(l, a, b, history):
     m_l = response_rx_ts_l - poll_rx_ts_l
 
     clock_ratio_ka_kb = (round_a + delay_a) / (delay_b + round_b)
-    #print(round_a)
-    #print(clock_ratio_ka_kb*delay_b)
-
     clock_ratio_kt_ka = round_l / (round_a + delay_a)
+
     tof_dc_a = (round_a-clock_ratio_ka_kb*delay_b) / 2.0
-    print(a,b, tof_dc_a * 299792458.0)
+    tdoa = clock_ratio_kt_ka*(round_a-tof_dc_a)-m_l
+    print(a,b, clock_ratio_kt_ka, tof_dc_a * 299792458.0, tdoa * 299792458.0)
 
     # TODO: Filter the rx list of the listener for the CFO!
 
@@ -172,10 +171,12 @@ def parse_messages_from_lines(line_it):
             continue
         try:
             dev, json_str = line.split('\t', 2)
-            msg = json.loads(json_str)
-            yield (dev, msg)
-        except json.decoder.JSONDecodeError:
-            pass
+            try:
+                msg = json.loads(json_str)
+                yield (dev, msg)
+            except json.decoder.JSONDecodeError:
+                print(json_str)
+                pass
         except ValueError:
             pass
 
@@ -230,7 +231,7 @@ if __name__ == "__main__":
 
 
         # if we have a tx message, we try to compute the TDoA values with everyone else
-        if msg['type'] == 'tx' and d == '/dev/tty.usbmodem0007601202991':
+        if msg['type'] == 'tx':#and d == '/dev/tty.usbmodem0007601202991':
             for (a, b) in itertools.combinations(msg_by_dev, 2):
                 if d in [a, b]:
                     continue
