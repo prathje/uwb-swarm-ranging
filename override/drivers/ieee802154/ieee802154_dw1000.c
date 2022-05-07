@@ -1273,7 +1273,7 @@ static int dwt_readcarrierintegrator(const struct device *dev)
 #define DWT_HERTZ_TO_PPM_MULTIPLIER_CHAN_5     (-1.0e6/6489.6e6)
 
 float dwt_rx_clock_ratio_offset(const struct device *dev) {
-    //TODO: Use correct channel!
+    //TODO: Uses only channel 5 (should depend on the device setting)
     return dwt_readcarrierintegrator(dev) * (DWT_FREQ_OFFSET_MULTIPLIER * DWT_HERTZ_TO_PPM_MULTIPLIER_CHAN_5 / 1.0e6);
 }
 
