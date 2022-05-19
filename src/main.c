@@ -138,7 +138,7 @@ static int format_msg_ts_to_json(char *buf, size_t buf_len, struct msg_ts *msg_t
     return snprintf(buf, buf_len, "{\"addr\": \"0x%04X\", \"sn\": %d, \"ts\": %llu}", addr, msg_ts->sn, ts);
 }
 
-static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t num_ts, float *clock_ratio_offset) {
+static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t num_ts, float *clock_ratio_offset, int8_t *rssi) {
     if (num_ts == 0) {
         uart_out("{}");
         return;
@@ -156,6 +156,10 @@ static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t nu
         uart_out(buf);
     }
 
+    if (rssi != NULL) {
+        snprintf(buf, sizeof(buf), "\"rssi\": %d, ", *rssi);
+        uart_out(buf);
+    }
 
     uart_out("\"tx\": ");
 
@@ -206,6 +210,8 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
     struct net_buf *buf = pkt->buffer;
     int ret;
 
+    int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);
+
     //LOG_WRN("Got data of length %d", len);
 
     if (len > sizeof(msg_header) + 2 && !memcmp(msg_header, net_buf_pull_mem(buf, sizeof(msg_header)), sizeof(msg_header))) {
@@ -241,7 +247,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
             }
             float cor = dwt_rx_clock_ratio_offset(ieee802154_dev);
             // and simply dump this whole message to the output
-            output_msg_to_uart("rx", rx_msg, num_msg, &cor);
+            output_msg_to_uart("rx", rx_msg, num_msg, &cor, &rssi);
         } else {
             LOG_WRN("Got weird data of length %d", len);
             net_pkt_hexdump(pkt, "<");
@@ -330,7 +336,7 @@ static void tx_thread(void)
                 LOG_ERR("TX: Error transmitting data!");
             } else {
 
-                output_msg_to_uart("tx", msg_tx_buf, MIN(NUM_MSG_TS, num_receptions+1), NULL);
+                output_msg_to_uart("tx", msg_tx_buf, MIN(NUM_MSG_TS, num_receptions+1), NULL, NULL);
 
                 msg_tx_buf[0].sn++;
                 sent_packets++;
