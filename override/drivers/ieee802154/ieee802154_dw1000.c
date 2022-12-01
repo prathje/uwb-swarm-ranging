@@ -1757,10 +1757,19 @@ static inline uint8_t *get_mac(const struct device *dev)
 {
     struct dwt_context *dw1000 = dev->data;
     uint32_t *ptr = (uint32_t *)(dw1000->mac_addr);
+    uint8_t part_id[8];
+    dwt_register_read(dev, DWT_OTP_PARTID_ADDR,0,8,part_id);
+    uint64_t mac_addr = 0;
+    for (int i = 0; i < 8; i++) {
+        mac_addr |= part_id[i];
+        if (i < 7) {
+            mac_addr <<= 8;
+        }
+    }
 
-    UNALIGNED_PUT(sys_rand32_get(), ptr);
+    UNALIGNED_PUT(mac_addr & 0xFFFFFFFF, ptr);
     ptr = (uint32_t *)(dw1000->mac_addr + 4);
-    UNALIGNED_PUT(sys_rand32_get(), ptr);
+    UNALIGNED_PUT((mac_addr >> 32) & 0xFFFFFFFF, ptr);
 
     dw1000->mac_addr[0] = (dw1000->mac_addr[0] & ~0x01) | 0x02;
 
