@@ -1,0 +1,14 @@
+services:
+  build:
+    build: .
+    volumes:
+      - ./:/app/
+    environment:
+      ZEPHYR_REVISION: "v3.2.0"
+    tty: true
+#    command:
+#      - /bin/sh
+#      - -c
+#      - |
+#        cp -Rf /app/override/* /zephyr/zephyr/
+#        west build -b decawave_dwm1001_dev --pristine always

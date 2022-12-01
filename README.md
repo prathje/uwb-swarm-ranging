@@ -10,6 +10,7 @@ Tested based on commit 6d56b829423056819c4baaafd6c66957752e22f8, while commit ee
 ## Build
 
 Build the project for the Decawave DWM1001 module:
+
 ```bash
 west build -b decawave_dwm1001_dev --pristine auto
 ```
@@ -18,6 +19,19 @@ You can then flash the boards one by one:
 ```bash
 west flash
 ```
+
+## Build With Docker
+
+You can also use the included Dockerfile / docker compose file configuration to build (warning this might take a bit of time):
+
+```commandline
+docker compose up -d --build
+
+docker compose exec -it /bin/bash build
+cp -Rf /app/override/* /zephyr/zephyr/
+west build -b decawave_dwm1001_dev --pristine always
+```
+
 
 
 ## Scripts

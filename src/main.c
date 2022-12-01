@@ -9,6 +9,11 @@
 
 LOG_MODULE_REGISTER(main);
 
+#define MAX_PACKETS -1
+#define INITIAL_DELAY_MS 5000
+#define ROUND_LENGTH_MS 5000
+#define DEVICE_OFFSET_MULTIPLICATOR 1
+
 /* ieee802.15.4 device */
 static struct ieee802154_radio_api *radio_api;
 static const struct device *ieee802154_dev;
@@ -16,7 +21,7 @@ static const struct device *ieee802154_dev;
 /**
  * Stack for the tx thread.
  */
-static K_THREAD_STACK_DEFINE(tx_stack, 1024);
+static K_THREAD_STACK_DEFINE(tx_stack, 2048);
 static struct k_thread tx_thread_data;
 static void tx_thread(void);
 static void init_tx_queue();
@@ -55,8 +60,6 @@ static struct msg_ts msg_tx_buf[NUM_MSG_TS];
 static uint64_t num_receptions = 0; // used to determine the amount of rx timestamps and also the next write pos
 K_SEM_DEFINE(msg_tx_buf_sem, 0, 1);
 
-static uint16_t next_rx_write_pos = 0;
-
 static const struct device* uart_device = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 static void uart_out(char* msg) {
     while (*msg != '\0') {
@@ -93,8 +96,8 @@ int main(void) {
     }
 
     /* Setup antenna delay values to 0 to get raw tx values */
-    dwt_set_antenna_delay_rx(dev, 0);
-    dwt_set_antenna_delay_tx(dev, 0);
+    dwt_set_antenna_delay_rx(ieee802154_dev, 0);
+    dwt_set_antenna_delay_tx(ieee802154_dev, 0);
 
     // we disable the frame filter, otherwise the packets are not received!
     dwt_set_frame_filter(ieee802154_dev, 0, 0);
@@ -102,17 +105,20 @@ int main(void) {
     radio_api = (struct ieee802154_radio_api *)ieee802154_dev->api;
 
     LOG_INF("Start IEEE 802.15.4 device");
-    ret = radio_api->start(ieee802154_dev);    if(ret) {
+    ret = radio_api->start(ieee802154_dev);
+    if(ret) {
         LOG_ERR("Could not start ieee 802.15.4 device");
         return false;
     }
+
+    k_msleep(INITIAL_DELAY_MS);
+
+    k_msleep((uint32_t)(((mac_addr[2]<<8)&0xFF)|mac_addr[1])*DEVICE_OFFSET_MULTIPLICATOR);
 
     // Create TX thread and queue
     init_tx_queue();
 
     while (1) {
-        // send a dummy packet for now!
-
         if (sent_packets > 0 && sent_packets % 1000 == 0) {
             LOG_DBG("Sent %d packets", sent_packets);
         }
@@ -141,7 +147,7 @@ static int format_msg_ts_to_json(char *buf, size_t buf_len, struct msg_ts *msg_t
     return snprintf(buf, buf_len, "{\"addr\": \"0x%04X\", \"sn\": %d, \"ts\": %llu}", addr, msg_ts->sn, ts);
 }
 
-static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t num_ts, float *clock_ratio_offset, int8_t *rssi) {
+static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t num_ts, int *carrierintegrator, int8_t *rssi) {
     if (num_ts == 0) {
         uart_out("{}");
         return;
@@ -154,8 +160,9 @@ static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t nu
 
     char buf[256];
 
-    if (clock_ratio_offset != NULL) {
-        snprintf(buf, sizeof(buf), "\"clock_ratio_offset\": %f, ", *clock_ratio_offset);
+
+    if (carrierintegrator != NULL) {
+       snprintf(buf, sizeof(buf), "\"carrierintegrator\": %d, ", *carrierintegrator);
         uart_out(buf);
     }
 
@@ -163,6 +170,7 @@ static void output_msg_to_uart(char* type, struct msg_ts msg_ts_arr[], size_t nu
         snprintf(buf, sizeof(buf), "\"rssi\": %d, ", *rssi);
         uart_out(buf);
     }
+
 
     uart_out("\"tx\": ");
 
@@ -211,7 +219,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 {
     size_t len = net_pkt_get_len(pkt);
     struct net_buf *buf = pkt->buffer;
-    int ret;
+    int ret = 0;
 
     int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);
 
@@ -225,13 +233,15 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
         net_buf_pull_u8(buf);
         net_buf_pull_u8(buf);
 
+
+
         if (len >  0 && len % sizeof (struct msg_ts)  == 0) {
             size_t num_msg = len / sizeof (struct msg_ts);
+
 
             // we handle the tx timestamp (the first element)
             {
                 k_sem_take(&msg_tx_buf_sem, K_FOREVER);
-                struct msg_ts *tx_ts = &rx_msg[0];
 
                 // we push the newest entries to the front (and all others to the back)
                 for(int i = NUM_MSG_TS-1; i >= 2 ; i--) {
@@ -246,11 +256,14 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 sys_put_le32(rx_ts >> 8, &msg_tx_buf[1].ts[1]);
 
                 num_receptions++;
+
+                int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
+                // and simply dump this whole message to the output
+                output_msg_to_uart("rx", rx_msg, num_msg, &carrierintegrator, &rssi);
+
                 k_sem_give(&msg_tx_buf_sem);
             }
-            float cor = dwt_rx_clock_ratio_offset(ieee802154_dev);
-            // and simply dump this whole message to the output
-            output_msg_to_uart("rx", rx_msg, num_msg, &cor, &rssi);
+
         } else {
             LOG_WRN("Got weird data of length %d", len);
             net_pkt_hexdump(pkt, "<");
@@ -344,11 +357,9 @@ static void tx_thread(void)
                 msg_tx_buf[0].sn++;
                 sent_packets++;
 
-                uint64_t estimated_ns = dwt_ts_to_fs(estimated_ts) / 1000000U;
-
-                struct net_ptp_time *actual_ts = net_pkt_timestamp(pkt);
-                uint64_t actual_ns = actual_ts->second * 1000000000U + actual_ts->nanosecond;
-
+                //uint64_t estimated_ns = dwt_ts_to_fs(estimated_ts) / 1000000U;
+                //struct net_ptp_time *actual_ts = net_pkt_timestamp(pkt);
+                //uint64_t actual_ns = actual_ts->second * 1000000000U + actual_ts->nanosecond;
                 //LOG_DBG("TX: Estimated %llu Actual %llu", estimated_ns, actual_ns);
             }
             k_sem_give(&msg_tx_buf_sem);
@@ -356,6 +367,10 @@ static void tx_thread(void)
 
         net_pkt_unref(pkt);
 
-        k_msleep(250);
+        if (sent_packets == MAX_PACKETS) {
+            break;
+        }
+
+        k_msleep(ROUND_LENGTH_MS);
     }
 }

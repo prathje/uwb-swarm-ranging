@@ -480,6 +480,11 @@ static inline void dwt_irq_handle_rx(const struct device *dev, uint32_t sys_stat
     }
 
     if (rx_pacc != 0) {
+
+        //ctx->rx_cir_pwr = cir_pwr;
+        //ctx->rx_pacc = rx_pacc;
+        //ctx->rx_a_const = a_const
+
 #if defined(CONFIG_NEWLIB_LIBC)
         /* From 4.7.2 Estimating the receive signal power */
 		rx_level = 10.0 * log10f(cir_pwr * BIT(17) /
@@ -653,6 +658,7 @@ static void dwt_gpio_callback(const struct device *dev,
 
     LOG_DBG("IRQ callback triggered %p", ctx);
     k_work_submit(&ctx->irq_cb_work);
+    //k_work_submit_to_queue(&dwt_work_queue, &ctx->irq_cb_work);
 }
 
 static enum ieee802154_hw_caps dwt_get_capabilities(const struct device *dev)
@@ -1237,7 +1243,7 @@ uint64_t dwt_rx_ts(const struct device *dev) {
 #define B20_SIGN_EXTEND_TEST (0x00100000UL)
 #define B20_SIGN_EXTEND_MASK (0xFFF00000UL)
 
-static int dwt_readcarrierintegrator(const struct device *dev)
+int dwt_readcarrierintegrator(const struct device *dev)
 {
     uint32_t  regval = 0 ;
     uint8_t buf[DWT_DRX_CARRIER_INT_LEN];
