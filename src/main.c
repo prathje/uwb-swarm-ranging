@@ -92,14 +92,17 @@ int main(void) {
         k_sem_give(&msg_tx_buf_sem);
     }
 
+    /* Setup antenna delay values to 0 to get raw tx values */
+    dwt_set_antenna_delay_rx(dev, 0);
+    dwt_set_antenna_delay_tx(dev, 0);
+
     // we disable the frame filter, otherwise the packets are not received!
     dwt_set_frame_filter(ieee802154_dev, 0, 0);
 
     radio_api = (struct ieee802154_radio_api *)ieee802154_dev->api;
 
     LOG_INF("Start IEEE 802.15.4 device");
-    ret = radio_api->start(ieee802154_dev);
-    if(ret) {
+    ret = radio_api->start(ieee802154_dev);    if(ret) {
         LOG_ERR("Could not start ieee 802.15.4 device");
         return false;
     }
