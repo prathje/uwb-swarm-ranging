@@ -13,7 +13,7 @@ import scipy.optimize
 import random
 
 SPEED_OF_LIGHT = 299792458.0
-MIN_CALIBRATION_DIST = 0.2
+MIN_CALIBRATION_DIST = 0.0
 
 DEFAULT_ANT_DELAY = 16450
 
@@ -403,24 +403,25 @@ if __name__ == "__main__":
         return err_sum / err_num
 
 
-    def calibrate(dev_mapping, dev_dist_ref, msg_by_dev):
+    def calibrate(dev_mapping, dev_dist_ref, msg_by_dev, rand=False):
         devs = []
         for d in dev_mapping:
             devs.append(dev_mapping[d])
+        if rand:
+            random.shuffle(devs)
 
         def params_to_offsets(params):
-            assert len(params) == len(devs)
+            assert len(params) == 2*len(devs)
 
             # we try to approximate half of the total delay according to decawave, (split to 44% for tx and 56% for rx delays)
 
             rx_offsets = {}
             tx_offsets = {}
             for (i, d) in enumerate(devs):
-                total_delay = params[i] / 0.5
-                rx_offsets[d] = total_delay * 0.44
-                tx_offsets[d] = total_delay * 0.56
+                rx_offsets[d] = params[2*i]
+                tx_offsets[d] = params[2*i+1]
 
-            print(rx_offsets)
+            #print(rx_offsets, tx_offsets)
             return (rx_offsets, tx_offsets)
 
         def loss(params):
@@ -429,20 +430,31 @@ if __name__ == "__main__":
             return calculate_calibration_loss(dev_mapping, dev_dist_ref, msg_by_dev, rx_offsets, tx_offsets)
 
         avg_delay_ts = 16450 #convert_sec_to_ts(515.0*1e-9)
-        delay_span_ts = convert_sec_to_ts(10.0*1e-9)
+        delay_span_ts = convert_sec_to_ts(4.0*1e-9)
         bounds = (avg_delay_ts-delay_span_ts, avg_delay_ts+delay_span_ts)
-        print("bound", bounds)
-        initial_delays = [avg_delay_ts for p in range(len(devs))]
-        #initial_delays = [random.uniform(bounds[0], bounds[1]) for p in range(len(devs))]
-        res = scipy.optimize.minimize(loss, initial_delays, bounds=[bounds]*len(devs), method='Powell')
+        #print("bound", bounds)
+        if rand:
+            initial_delays = [random.uniform(bounds[0], bounds[1]) for p in range(len(devs)*2)]
+        else:
+            initial_delays = [avg_delay_ts for p in range(len(devs)*2)]
+
+        res = scipy.optimize.minimize(loss, initial_delays, bounds=[bounds]*len(devs)*2, method='Powell')
         return params_to_offsets(res.x)
 
     # 0.003
     #(rx_offsets, tx_offsets) = ({'0xBB1E': 14406.927603513546, '0x9042': 14399.393921091114, '0xE621': 14502.832007397377, '0x853C': 14491.195700323082}, {'0xBB1E': 18336.08967719906, '0x9042': 18326.501354115964, '0xE621': 18458.149827596662, '0x853C': 18443.33998222938})
     # 0.0033095516400284625
-    (rx_offsets, tx_offsets) = ({'0xBB1E': 14406.929284833172, '0x9042': 14399.394679103347, '0xE621': 14502.831814957344, '0x853C': 14491.194413552084}, {'0xBB1E': 18336.0918170604, '0x9042': 18326.502318858806, '0xE621': 18458.149582672984, '0x853C': 18443.33834452084})
+    #(rx_offsets, tx_offsets) = ({'0xBB1E': 14406.929284833172, '0x9042': 14399.394679103347, '0xE621': 14502.831814957344, '0x853C': 14491.194413552084}, {'0xBB1E': 18336.0918170604, '0x9042': 18326.502318858806, '0xE621': 18458.149582672984, '0x853C': 18443.33834452084})
+
+
+
+    (rx_offsets, tx_offsets) = ({'0xBB1E': 16293.04339946, '0x9042': 16449.97652584, '0xE621': 16275.88954547, '0x853C': 16449.99418732}, {'0xBB1E': 16510.98191186, '0x9042': 16450.00129933, '0xE621': 16484.52522657, '0x853C': 16450.01300476})
+
+    #for i in range(20):
+    (rx_offsets, tx_offsets) = calibrate(dev_mapping, dev_dist_mapping_ref, msg_by_dev)
+    print(calculate_calibration_loss(dev_mapping, dev_dist_mapping_ref, msg_by_dev, rx_offsets, tx_offsets), rx_offsets, tx_offsets)
+
     offset_msg_by_dev = apply_antenna_offset_to_map(msg_by_dev, rx_offsets, tx_offsets)
-    print(estimate_distance_matrix(dev_mapping, offset_msg_by_dev))
 
     for t in tags:
         for l in left_anchors:
@@ -467,7 +479,7 @@ if __name__ == "__main__":
     #print(dev_dist_mapping_ref)
     #print(estimate_distance_matrix(dev_mapping, msg_by_dev))
 
-    #print(calculate_calibration_loss(dev_mapping, dev_dist_mapping_ref, msg_by_dev, rx_offsets, tx_offsets))
+    #print()
     # 0.03 [ 1.56954142e+02 -2.44577925e-02  1.74093177e+02 -9.30810992e-03 -6.10009614e+01 -1.79911868e-02 -3.44278714e+01  9.03475992e-03]
     # ({'0xBB1E': 13.984941018139757, '0x9042': 25.250549514444568, '0xE621': 22.863062611145047, '0x853C': 19.158230417479277}, {'0xBB1E': -11.763788632923006, '0x9042': -42.294306855383724, '0xE621': 7.274973733565174, '0x853C': -31.737094588865645})
 
