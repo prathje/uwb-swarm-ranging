@@ -1,0 +1,1 @@
+python3 monitor.py /dev/tty.usbmodem0007601203281 /dev/tty.usbmodem0007601202561

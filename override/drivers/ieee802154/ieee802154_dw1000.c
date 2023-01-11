@@ -66,6 +66,8 @@ LOG_MODULE_REGISTER(dw1000, LOG_LEVEL_INF);
 
 #define DWT_WORK_QUEUE_STACK_SIZE	512
 
+#define DWT_OTP_DELAY_ADDR	0x1C
+
 static struct k_work_q dwt_work_queue;
 static K_KERNEL_STACK_DEFINE(dwt_work_queue_stack,
 DWT_WORK_QUEUE_STACK_SIZE);
@@ -1172,8 +1174,13 @@ void dwt_set_antenna_delay_tx(const struct device *dev, uint16_t tx_delay_ts) {
 uint16_t dwt_antenna_delay_rx(const struct device *dev) {
     return dwt_reg_read_u16(dev, DWT_LDE_IF_ID, DWT_LDE_RXANTD_OFFSET);
 }
+
 inline uint16_t dwt_antenna_delay_tx(const struct device *dev) {
     return dwt_reg_read_u16(dev, DWT_TX_ANTD_ID, DWT_TX_ANTD_OFFSET);
+}
+
+uint32_t dwt_otp_antenna_delay(const struct device *dev) {
+    return dwt_otpmem_read(dev, DWT_OTP_DELAY_ADDR);
 }
 
 inline void dwt_set_delayed_tx_short_ts(const struct device *dev, uint32_t short_ts) {
@@ -1288,6 +1295,7 @@ static int dwt_initialise_dev(const struct device *dev)
 {
     struct dwt_context *ctx = dev->data;
     uint32_t otp_val = 0;
+    uint32_t otp_antenna_delay = 0;
     uint8_t xtal_trim;
 
     ctx->delayed_tx_short_ts_set = 0;
@@ -1340,6 +1348,9 @@ static int dwt_initialise_dev(const struct device *dev)
     LOG_DBG("LOT ID 0x%08x", dwt_otpmem_read(dev, DWT_OTP_LOTID_ADDR));
     LOG_DBG("Vbat 0x%02x", dwt_otpmem_read(dev, DWT_OTP_VBAT_ADDR));
     LOG_DBG("Vtemp 0x%02x", dwt_otpmem_read(dev, DWT_OTP_VTEMP_ADDR));
+
+    otp_antenna_delay = dwt_otpmem_read(dev, DWT_OTP_DELAY_ADDR);
+    LOG_INF("OTP AntDelay 0x%02x", otp_antenna_delay); //TODO: change this to a debug log
 
     if (xtal_trim == 0) {
         /* Set to default */
