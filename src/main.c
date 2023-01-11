@@ -73,7 +73,15 @@ enum net_verdict ieee802154_radio_handle_ack(struct net_if *iface, struct net_pk
     return NET_CONTINUE;
 }
 
+
+extern void matrix_test();
+
 int main(void) {
+
+    LOG_INF("Testing ...");
+    matrix_test();
+    return;
+
     int ret = 0;
     LOG_INF("Starting ...");
 
