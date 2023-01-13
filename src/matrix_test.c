@@ -123,7 +123,6 @@ bool matrix_test_f16() {
 }
 
 void matrix_test() {
-
     matrix_test_f16();
 
 }
