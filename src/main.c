@@ -21,8 +21,6 @@ static struct ieee802154_radio_api *radio_api;
 static const struct device *ieee802154_dev;
 
 
-
-
 static int sent_packets = 0;
 
 // measurement
@@ -58,15 +56,11 @@ static void uart_out(char* msg) {
     }
 }
 
-
-
-
 extern void matrix_test();
 
 
 extern uint16_t get_own_node_id();
 extern int8_t get_node_number(uint16_t node_id);
-
 
 
 static uint16_t own_number = 0;
@@ -80,13 +74,137 @@ static int64_t round_start = 0;
 static int64_t round_end = 0;
 
 
+
+// we save the last & current msgs of every node
+static struct msg last_msg[NUM_NODES];
+static struct msg cur_msg[NUM_NODES];
+
+static float relative_drifts[NUM_NODES]; //
+
+
+static inline void ts_from_uint(ts_t *ts_out, uint64_t val) {
+    uint8_t dst[sizeof(uint64_t)];
+    sys_put_le64(val, dst);
+    memcpy(ts_out, dst, sizeof(ts_t));
+}
+
+static inline uint64_t ts_to_uint(const ts_t *ts) {
+    uint8_t buf[sizeof(uint64_t)] = {0};
+    memcpy(&buf, ts, sizeof(ts_t));
+    return sys_get_le64(buf);
+}
+
+
+void on_round_end() {
+
+    // we need to go through all new msgs
+
+    /*
+
+
+                    uint64_t old_rx_ts = ts_to_uint(&last_msg[own_number].rx_ts[rx_number]);
+
+                ts_from_uint(&msg_tx_buf.rx_ts[rx_number], rx_ts);
+
+                uint64_t old_tx_ts = ts_to_uint(&last_msg[rx_number].tx_ts);
+                uint64_t tx_ts = ts_to_uint(&rx_msg->tx_ts);
+
+                if (old_rx_ts != 0) {
+
+                    if (old_rx_ts > rx_ts) {
+                        rx_ts += 0xFFFFFFFFFF;
+                    }
+
+                    if (old_tx_ts > tx_ts) {
+                        tx_ts += 0xFFFFFFFFFF;
+                    }
+
+                    if (tx_ts - old_tx_ts != 0) {
+                        relative_drifts[rx_number] = (float)(rx_ts - old_rx_ts) / (float)(tx_ts - old_tx_ts);
+
+                    }
+                }
+
+
+                LOG_DBG("Relative drift estimation: %lld, %lld, %lld, %lld", rx_ts, old_rx_ts, tx_ts, old_tx_ts);
+                */
+
+}
+
+
+void on_new_msg(const struct msg *a_new) {
+
+    uint8_t a = a_new->number;
+    struct msg *a_last = &last_msg[a];
+
+    // we first check if the last message we have saved is actually the previous round
+    if (a_new->round == a_last->round + 1) {
+        // we extract all possible combinations now
+        // TODO: We could only do this for a == own_number
+        for(int b = 0; b < NUM_NODES; b++) {
+            if (b == a) {
+                continue;   // ignore packets from the same device
+            }
+
+            struct msg *b_last = &last_msg[b];  // the last message that we have received from B
+
+            if ((a < b && b_last->round == a_last->round) || (a > b && b_last->round == a_new->round)) {   // if a < b then the last message from b should be the same as the a_last, else if a > b then b's round should be the same as A's
+
+                uint64_t init_tx_ts_a, init_rx_ts_b, response_tx_ts_b, response_rx_ts_a;
+
+                init_tx_ts_a = ts_to_uint(&a_last->tx_ts);
+                init_rx_ts_b = ts_to_uint(&b_last->rx_ts[a]);
+
+                response_tx_ts_b = ts_to_uint(&b_last->tx_ts);
+                response_rx_ts_a = ts_to_uint(&a_new->rx_ts[b]);
+
+                if (init_tx_ts_a == 0 || init_rx_ts_b == 0 || response_tx_ts_b == 0 || response_rx_ts_a == 0) {
+                    // there might be a message missing -> we ignore this exchange for now
+                    LOG_DBG("Exchange ignored!");
+                    continue;
+                }
+
+
+                // we need to ensure that our values are sane, i.e., init_tx_ts_a < response_rx_ts_a  and init_rx_ts_b < response_tx_ts_b
+                // if that is the case, an overflow happened wich we need to deal with right now!
+
+                if (init_tx_ts_a >= response_rx_ts_a) {
+                    response_rx_ts_a += 0xFFFFFFFFFF;
+                }
+                if (init_rx_ts_b >= response_tx_ts_b) {
+                    response_tx_ts_b += 0xFFFFFFFFFF;
+                }
+
+                uint64_t round_a = response_rx_ts_a - init_tx_ts_a;
+                uint64_t delay_b = response_tx_ts_b - init_rx_ts_b;
+
+                float round_a_corrected = ((float)(response_rx_ts_a - init_tx_ts_a)) * relative_drifts[a];
+                float delay_b_corrected =  ((float)(response_tx_ts_b - init_rx_ts_b)) * relative_drifts[b];
+
+                if (round_a_corrected != 0.0 && delay_b != 0.0) {
+                    float tof_in_uwb_us = (round_a_corrected - delay_b_corrected);
+
+                    int64_t two_tof = tof_in_uwb_us;
+                    LOG_DBG("Round 2Tof: %hhu, %hhu, %lld", a, b, two_tof);
+                }
+            } else {
+                LOG_DBG("Round Mismatch! %hhu, %hhu, %hu, %hu", a, b, a_new->round, b_last->round);
+            }
+        }
+    }
+
+    memcpy(a_last, a_new, sizeof(struct msg)); // save message in the end
+}
+
+
+
 int main(void) {
 
     LOG_INF("Getting node id");
     own_number = get_node_number(get_own_node_id());
 
     if (own_number == -1) {
-        LOG_INF("Node number NOT FOUND!");
+        LOG_INF("Node number NOT FOUND! Shutting down :(");
         return;
     }
 
@@ -106,9 +224,17 @@ int main(void) {
         return false;
     }
 
+    for(int i = 0; i < NUM_NODES; i++) {
+        relative_drifts[i] = 0.0;
+    }
+
+    relative_drifts[own_number] = 1.0;
+
     // prepare msg buffer
     {
         (void)memset(&msg_tx_buf, 0, sizeof(msg_tx_buf));
+        (void)memset(&last_msg, 0, sizeof(last_msg));
+
         // TODO: Add own addr!
         msg_tx_buf.number = own_number&0xFF;
         msg_tx_buf.round = 0;
@@ -117,8 +243,8 @@ int main(void) {
     }
 
     /* Setup antenna delay values to 0 to get raw tx values */
-    dwt_set_antenna_delay_rx(ieee802154_dev, 0);
-    dwt_set_antenna_delay_tx(ieee802154_dev, 0);
+    dwt_set_antenna_delay_rx(ieee802154_dev, 16450);
+    dwt_set_antenna_delay_tx(ieee802154_dev, 16450);
 
     // we disable the frame filter, otherwise the packets are not received!
     dwt_set_frame_filter(ieee802154_dev, 0, 0);
@@ -147,6 +273,7 @@ int main(void) {
             // we advance the round \o/
             msg_tx_buf.round += 1;
             LOG_INF("Advancing new round! (%hu)", msg_tx_buf.round);
+
             k_sem_give(&tx_sem);
 
             round_start = k_uptime_get();
@@ -277,16 +404,18 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
         if (len >  0 && len % sizeof (struct msg)  == 0) {
             //size_t num_msg = len / sizeof (struct msg_ts);
 
-            //TODO: Save the reception somewhere!
+            uint8_t rx_number = rx_msg->number;
+            uint16_t rx_round = rx_msg->round;
 
+            // TODO: CHECK IF WE would need to ignore this msg
             // we handle the tx timestamp (the first element)
             {
+                // save this message for later processing
+                memcpy(&cur_msg[rx_number], rx_msg, sizeof(struct msg));
+
                 k_sem_take(&msg_tx_buf_sem, K_FOREVER);
 
                 uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
-
-                uint8_t rx_number = rx_msg->number;
-                uint16_t rx_round = rx_msg->round;
 
                 //LOG_DBG("Received message from %hhu (round %hu)", rx_number, rx_round);
 
@@ -298,16 +427,14 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 
                 msg_tx_buf.round = MAX(msg_tx_buf.round, rx_round);
 
-                // TODO: should this message be ignored?
-                    msg_tx_buf.rx_ts[rx_number][0] = (uint8_t)(rx_ts&0xFF);
-                    sys_put_le32(rx_ts >> 8, &msg_tx_buf.rx_ts[rx_number][1]);
-                    k_sem_give(&msg_tx_buf_sem);
 
                 if ((rx_number < msg_tx_buf.number && rx_round == msg_tx_buf.round +1) || (rx_number > msg_tx_buf.number && rx_round == msg_tx_buf.round)) {
 
                 } else {
                     //LOG_DBG("Message was ignored!");
                 }
+
+
 
                 bool start_new_round = false;
                 if (IS_INITIATOR && rx_number == NUM_NODES-1) {
@@ -325,9 +452,9 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 
                 if (start_new_round) {
                     //LOG_DBG("Starting new round! (n: %hhu, r: %hu)", msg_tx_buf.number, msg_tx_buf.round);
-                    k_sem_give(&tx_sem);
                     round_start = k_uptime_get();
                     round_end = 0;
+                    k_sem_give(&tx_sem);
                 }
 
                 k_sem_give(&msg_tx_buf_sem);
@@ -400,9 +527,8 @@ static int transmit() {
                 estimated_ts = dwt_plan_delayed_tx(ieee802154_dev, uus_delay);
 
                 // put planned ts into the packet!
-                uint8_t dst[8];
-                sys_put_le64(estimated_ts, dst);
-                memcpy(&msg_tx_buf.tx_ts, dst, sizeof(msg_tx_buf.tx_ts));
+
+                ts_from_uint(&msg_tx_buf.tx_ts, estimated_ts);
 
                 // all other entries are updated in the rx event!
                 net_pkt_write(pkt, &msg_tx_buf, sizeof(msg_tx_buf));
@@ -423,6 +549,9 @@ static int transmit() {
                 //struct net_ptp_time *actual_ts = net_pkt_timestamp(pkt);
                 //uint64_t actual_ns = actual_ts->second * 1000000000U + actual_ts->nanosecond;
                 //LOG_DBG("TX: Estimated %llu Actual %llu", estimated_ns, actual_ns);
+
+                // we also save our own message before resetting it
+                memcpy(&cur_msg[own_number], &msg_tx_buf, sizeof(struct msg));
 
                 // we reset the tx_buf Note that we still hold msg_tx_buf_sem
                 (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
