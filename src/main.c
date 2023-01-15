@@ -119,10 +119,26 @@ static inline uint64_t get_uint_duration(const ts_t *end_ts, const ts_t *start_t
 }
 
 
-void on_round_end() {
+void on_round_end(uint16_t round_number) {
 
     // cur_msg contains all messages of the this round
     // last_msg contains all messages of the previous round
+
+    // we cleanup invalid values first
+
+     for(int i = 0; i < NUM_NODES; i++) {
+        if(last_msg[i].round != round_number - 1) {
+            memset(&cur_msg[i], 0, sizeof(struct msg));
+            LOG_DBG("LastMsg invalid value of %d", i);
+        }
+
+        if(cur_msg[i].round != round_number) {
+            memset(&last_msg[i], 0, sizeof(struct msg));
+            LOG_DBG("CurMsg invalid value of %d", i);
+        }
+     }
+
+
 
    // determine all relative drift rates for now:
 
@@ -157,7 +173,10 @@ void on_round_end() {
    }
 
    // our own relative drift is just one ofc
+   rd_other_dur[own_number] = 1;
+   rd_own_dur[own_number] = 1;
    relative_drifts[own_number] = 1.0;
+
    output_relative_drifts(rd_own_dur, rd_other_dur);
 
     // we now check every combination
@@ -179,7 +198,7 @@ void on_round_end() {
                 delay_dur_b = get_uint_duration(&last_msg[b].tx_ts, &last_msg[b].rx_ts[a]);
             } else {
                 // otherwise b transmitted before a, so it should reside in the current round
-                delay_dur_b = get_uint_duration(&cur_msg[b].tx_ts, &cur_msg[b].rx_ts[a]);
+                //delay_dur_b = get_uint_duration(&cur_msg[b].tx_ts, &cur_msg[b].rx_ts[a]);
             }
 
             if (round_dur_a != 0 && delay_dur_b != 0 && relative_drifts[a] != 0.0 && relative_drifts[b] != 0.0) {
@@ -192,16 +211,16 @@ void on_round_end() {
                 float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_US;
 
                 int64_t est_cm = est_distance_in_m*100;
-                LOG_DBG("Round est cm: %hhu, %hhu, %lld", a, b, est_cm);
+                LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, est_cm, round_dur_a, delay_dur_b);
             }
         }
     }
 
-
     // copy all of the current messages to the last round
     memcpy(&last_msg, &cur_msg, sizeof(last_msg));
 
-
+    // reset cur_msg!
+    memset(&cur_msg, 0, sizeof(cur_msg));
 }
 
 //
@@ -284,7 +303,6 @@ int main(void) {
     //LOG_INF("Testing ...");
     //matrix_test();
     //return;
-
 
     int ret = 0;
     LOG_INF("Starting ...");
@@ -465,45 +483,56 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
             uint16_t rx_round = rx_msg->round;
 
             // TODO: CHECK IF WE would need to ignore this msg
-            // we handle the tx timestamp (the first element)
+
+            uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
+            // save this message for later processing
+            memcpy(&cur_msg[rx_number], rx_msg, sizeof(struct msg));
+
+            k_sem_take(&msg_tx_buf_sem, K_FOREVER);
             {
-                // save this message for later processing
-                memcpy(&cur_msg[rx_number], rx_msg, sizeof(struct msg));
-
-                k_sem_take(&msg_tx_buf_sem, K_FOREVER);
-
-                uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
-
                 // save this ts in our tx buf!
                 ts_from_uint(&msg_tx_buf.rx_ts[rx_number], rx_ts);
-                msg_tx_buf.round = MAX(msg_tx_buf.round, rx_round);
 
-                bool start_new_round = false;
-
-                if (rx_number == NUM_NODES-1) {
+                // we wait for the packet of our predecessor
+                 if (rx_number == NUM_NODES-1) {
                     // oh wow, this was the last one!
                     // we could technically directly start the next round as an initiator
                     int64_t milliseconds_spent = k_uptime_delta(&round_start);
                     LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
-                    on_round_end();
+                    on_round_end(msg_tx_buf.round);
                 } else if (!IS_INITIATOR && rx_number == msg_tx_buf.number-1) {
-                    // we are not the initiator
-                    // we wait for the packet of our predecessor
-                    start_new_round = true;
 
-                    //LOG_DBG("Starting new round! (n: %hhu, r: %hu)", msg_tx_buf.number, msg_tx_buf.round);
+                    if (rx_round == msg_tx_buf.round + 1) {
+                        // we can advance to the new round without problems
+                    } else {
+                        // this is problematic!
+                        if (rx_round <= msg_tx_buf.round) {
+                            LOG_WRN("Received outdated round from predecessor!!!"); // this is NOT good
+                            // TODO: how to handle this case?
+                        } else {
+                            LOG_INF("Values seem outdated... Resetting..."); // note that we can waste time in this case since we are the next to transmit anyway!
+                            // the received round is a lot more progressed than we are
+                            // we hence cannot be sure that our received timestamps are still valid and reset them!
+                            // we reset the tx_buf Note that we still hold msg_tx_buf_sem
+                            (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
+                        }
+                    }
+
                     round_start = k_uptime_get();
                     round_end = 0;
+
+                    msg_tx_buf.round = MAX(msg_tx_buf.round, rx_round); // use new updated round number in any case
                     k_sem_give(&tx_sem);
+
+                    //LOG_DBG("Starting new round! (n: %hhu, r: %hu)", msg_tx_buf.number, msg_tx_buf.round);
                 }
-
-                k_sem_give(&msg_tx_buf_sem);
-
-                //num_receptions++;
-                //int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
-                // and simply dump this whole message to the output
-                //output_msg_to_uart("rx", rx_msg, num_msg, &carrierintegrator, &rssi);
             }
+            k_sem_give(&msg_tx_buf_sem);
+
+            //num_receptions++;
+            //int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
+            // and simply dump this whole message to the output
+            //output_msg_to_uart("rx", rx_msg, num_msg, &carrierintegrator, &rssi);
 
         } else {
             LOG_WRN("Got weird data of length %d", len);
@@ -592,6 +621,13 @@ static int transmit() {
 
                 // we reset the tx_buf Note that we still hold msg_tx_buf_sem
                 (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
+
+                if (own_number == NUM_NODES-1) {
+                    // oh wow, this was the last one! -> we end the round now
+                    int64_t milliseconds_spent = k_uptime_delta(&round_start);
+                    LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
+                    on_round_end(msg_tx_buf.round);
+                }
             }
             k_sem_give(&msg_tx_buf_sem);
         }
