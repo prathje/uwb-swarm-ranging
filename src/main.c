@@ -72,7 +72,7 @@ static uint16_t own_number = 0;
 
 
 static void output_relative_drifts(uint64_t own_dur[], uint64_t other_dur[]);
-
+static void output_msg_to_uart(struct msg* m);
 
 static int64_t round_start = 0;
 static int64_t round_end = 0;
@@ -125,20 +125,19 @@ void on_round_end(uint16_t round_number) {
     // last_msg contains all messages of the previous round
 
     // we cleanup invalid values first
-
      for(int i = 0; i < NUM_NODES; i++) {
         if(last_msg[i].round != round_number - 1) {
-            memset(&cur_msg[i], 0, sizeof(struct msg));
-            LOG_DBG("LastMsg invalid value of %d", i);
-        }
-
-        if(cur_msg[i].round != round_number) {
-            memset(&last_msg[i], 0, sizeof(struct msg));
-            LOG_DBG("CurMsg invalid value of %d", i);
+            memset(&last_msg[i], 0, sizeof(last_msg[i]));
+            LOG_DBG("LastMsg invalid value of %d, expected %hu, got %hu", i, round_number - 1, last_msg[i].round);
         }
      }
 
-
+     for(int i = 0; i < NUM_NODES; i++) {
+        if(cur_msg[i].round != round_number) {
+            memset(&cur_msg[i], 0, sizeof(cur_msg[i]));
+            LOG_DBG("CurMsg invalid value of %d, expected %hu, got %hu", i, round_number, cur_msg[i].round);
+        }
+     }
 
    // determine all relative drift rates for now:
 
@@ -177,7 +176,37 @@ void on_round_end(uint16_t round_number) {
    rd_own_dur[own_number] = 1;
    relative_drifts[own_number] = 1.0;
 
+
+   uart_out("{");
+
+   char buf[256];
+    snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
+    uart_out(buf);
+
+
+   uart_out(", \"relative_drifts\": ");
    output_relative_drifts(rd_own_dur, rd_other_dur);
+
+   uart_out(", \"last_msg\": [");
+
+   for(int i = 0; i < NUM_NODES; i++) {
+        output_msg_to_uart(&last_msg[i]);
+
+        if(i < NUM_NODES-1) {
+            uart_out(", ");
+        }
+     }
+   uart_out("], \"cur_msg\": [");
+
+   for(int i = 0; i < NUM_NODES; i++) {
+        output_msg_to_uart(&cur_msg[i]);
+
+        if(i < NUM_NODES-1) {
+            uart_out(", ");
+        }
+    }
+   uart_out("]}\n");
+
 
     // we now check every combination
     // TODO: we might also just want to check for ourselves
@@ -198,6 +227,7 @@ void on_round_end(uint16_t round_number) {
                 delay_dur_b = get_uint_duration(&last_msg[b].tx_ts, &last_msg[b].rx_ts[a]);
             } else {
                 // otherwise b transmitted before a, so it should reside in the current round
+                // TODO: Since we have a lot of delay between rounds, this round and delay values are too big to be handled with the necessary precision!
                 //delay_dur_b = get_uint_duration(&cur_msg[b].tx_ts, &cur_msg[b].rx_ts[a]);
             }
 
@@ -494,14 +524,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 ts_from_uint(&msg_tx_buf.rx_ts[rx_number], rx_ts);
 
                 // we wait for the packet of our predecessor
-                 if (rx_number == NUM_NODES-1) {
-                    // oh wow, this was the last one!
-                    // we could technically directly start the next round as an initiator
-                    int64_t milliseconds_spent = k_uptime_delta(&round_start);
-                    LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
-                    on_round_end(msg_tx_buf.round);
-                } else if (!IS_INITIATOR && rx_number == msg_tx_buf.number-1) {
-
+                if (!IS_INITIATOR && rx_number == msg_tx_buf.number-1) {
                     if (rx_round == msg_tx_buf.round + 1) {
                         // we can advance to the new round without problems
                     } else {
@@ -525,6 +548,12 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                     k_sem_give(&tx_sem);
 
                     //LOG_DBG("Starting new round! (n: %hhu, r: %hu)", msg_tx_buf.number, msg_tx_buf.round);
+                } else if (rx_number == NUM_NODES-1) {
+                    // oh wow, this was the last one!
+                    // we could technically directly start the next round as an initiator
+                    int64_t milliseconds_spent = k_uptime_delta(&round_start);
+                    LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
+                    on_round_end(msg_tx_buf.round);
                 }
             }
             k_sem_give(&msg_tx_buf_sem);
