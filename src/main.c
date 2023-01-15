@@ -13,6 +13,9 @@ LOG_MODULE_REGISTER(main);
 #define INITIAL_DELAY_MS 1000
 #define ROUND_TIMEOUT_MS 5000
 #define DEVICE_OFFSET_MULTIPLICATOR 1
+#define SPEED_OF_LIGHT_M_PER_S 299792458.0
+#define SPEED_OF_LIGHT_M_PER_UWB_US ((SPEED_OF_LIGHT_M_PER_S * 1.0E-15) * 15650.0) // around 0.00469175196
+
 
 #define NUM_NODES 14
 
@@ -124,6 +127,7 @@ void on_round_end() {
    // determine all relative drift rates for now:
 
    static float relative_drifts[NUM_NODES];
+
    static uint64_t rd_own_dur[NUM_NODES] = {0};
    static uint64_t rd_other_dur[NUM_NODES] = {0};
 
@@ -152,59 +156,51 @@ void on_round_end() {
         }
    }
 
-      // our own relative drift is just one ofc
+   // our own relative drift is just one ofc
    relative_drifts[own_number] = 1.0;
    output_relative_drifts(rd_own_dur, rd_other_dur);
 
     // we now check every combination
     // TODO: we might also just want to check for ourselves
-    for (size_t a = 0; a < NUM_NODES; a++) {
-        for(size_t b = 0; b < NUM_NODES; b++) {
-            if(a ==b) {
+    for (int a = 0; a < NUM_NODES; a++) {
+        for(int b = 0; b < NUM_NODES; b++) {
+            if(a == b) {
                 continue;
             }
 
+            // we extract the ranging as initiated by A:
+            uint64_t round_dur_a = 0;
+            uint64_t delay_dur_b = 0;
+
+            round_dur_a = get_uint_duration(&cur_msg[a].rx_ts[b], &last_msg[a].tx_ts);
+
+            if (a < b) {
+                // the response delay of b should be in the last_msg as well
+                delay_dur_b = get_uint_duration(&last_msg[b].tx_ts, &last_msg[b].rx_ts[a]);
+            } else {
+                // otherwise b transmitted before a, so it should reside in the current round
+                delay_dur_b = get_uint_duration(&cur_msg[b].tx_ts, &cur_msg[b].rx_ts[a]);
+            }
+
+            if (round_dur_a != 0 && delay_dur_b != 0 && relative_drifts[a] != 0.0 && relative_drifts[b] != 0.0) {
+
+                float round_a_corrected = (float)(round_dur_a) * relative_drifts[a];
+                float delay_b_corrected =  (float)(delay_dur_b) * relative_drifts[b];
+
+                float tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
+
+                float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_US;
+
+                int64_t est_cm = est_distance_in_m*100;
+                LOG_DBG("Round est cm: %hhu, %hhu, %lld", a, b, est_cm);
+            }
         }
     }
-
-
-
 
 
     // copy all of the current messages to the last round
     memcpy(&last_msg, &cur_msg, sizeof(last_msg));
 
-    // we need to go through all new msgs
-
-    /*
-
-
-                    uint64_t old_rx_ts = ts_to_uint(&last_msg[own_number].rx_ts[rx_number]);
-
-
-
-                uint64_t old_tx_ts = ts_to_uint(&last_msg[rx_number].tx_ts);
-                uint64_t tx_ts = ts_to_uint(&rx_msg->tx_ts);
-
-                if (old_rx_ts != 0) {
-
-                    if (old_rx_ts > rx_ts) {
-                        rx_ts += 0xFFFFFFFFFF;
-                    }
-
-                    if (old_tx_ts > tx_ts) {
-                        tx_ts += 0xFFFFFFFFFF;
-                    }
-
-                    if (tx_ts - old_tx_ts != 0) {
-                        relative_drifts[rx_number] = (float)(rx_ts - old_rx_ts) / (float)(tx_ts - old_tx_ts);
-
-                    }
-                }
-
-
-                LOG_DBG("Relative drift estimation: %lld, %lld, %lld, %lld", rx_ts, old_rx_ts, tx_ts, old_tx_ts);
-                */
 
 }
 
@@ -480,30 +476,13 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 
                 // save this ts in our tx buf!
                 ts_from_uint(&msg_tx_buf.rx_ts[rx_number], rx_ts);
-
-                //LOG_DBG("Received message from %hhu (round %hu)", rx_number, rx_round);
-
-                if (rx_number < msg_tx_buf.number && rx_round > msg_tx_buf.round) {
-                    //LOG_DBG("Outdated round detected (round %hu)", msg_tx_buf.round);
-                    // we are behind! -> delete timestamps just to be sure? TODO
-                    //(void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
-                }
-
                 msg_tx_buf.round = MAX(msg_tx_buf.round, rx_round);
 
-
-                if ((rx_number < msg_tx_buf.number && rx_round == msg_tx_buf.round +1) || (rx_number > msg_tx_buf.number && rx_round == msg_tx_buf.round)) {
-
-                } else {
-                    //LOG_DBG("Message was ignored!");
-                }
-
                 bool start_new_round = false;
+
                 if (rx_number == NUM_NODES-1) {
                     // oh wow, this was the last one!
                     // we could technically directly start the next round as an initiator
-                    // TODO: start the next round
-                    //start_new_round = true;
                     int64_t milliseconds_spent = k_uptime_delta(&round_start);
                     LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
                     on_round_end();
@@ -511,9 +490,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                     // we are not the initiator
                     // we wait for the packet of our predecessor
                     start_new_round = true;
-                }
 
-                if (start_new_round) {
                     //LOG_DBG("Starting new round! (n: %hhu, r: %hu)", msg_tx_buf.number, msg_tx_buf.round);
                     round_start = k_uptime_get();
                     round_end = 0;
@@ -523,12 +500,9 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 k_sem_give(&msg_tx_buf_sem);
 
                 //num_receptions++;
-
                 //int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
                 // and simply dump this whole message to the output
                 //output_msg_to_uart("rx", rx_msg, num_msg, &carrierintegrator, &rssi);
-
-
             }
 
         } else {

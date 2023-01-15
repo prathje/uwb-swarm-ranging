@@ -351,6 +351,11 @@ def get_dist(a, b):
     return np.linalg.norm(pos_a - pos_b)
 
 
+for a in dev_positions:
+    for b in dev_positions:
+        if a < b:
+            print((a,b, round(get_dist(a, b), 2)))
+
 
 if __name__ == "__main__":
     with open("data/serial_output_lille.log") as f:
