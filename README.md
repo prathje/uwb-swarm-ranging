@@ -29,7 +29,7 @@ docker compose up -d --build
 
 docker compose exec -it /bin/bash build
 cp -Rf /app/override/* /zephyr/zephyr/
-west build -b decawave_dwm1001_dev --pristine always
+west build -b decawave_dwm1001_dev --pristine auto
 ```
 
 
