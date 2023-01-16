@@ -7,21 +7,24 @@
 #include <stdio.h>
 #include <drivers/uart.h>
 
+#include "node_numbers.h"
+#include "estimation.h"
+
 LOG_MODULE_REGISTER(main);
 
 #define MAX_PACKETS -1
-#define INITIAL_DELAY_MS 1000
-#define ROUND_TIMEOUT_MS 5000
+#define INITIAL_DELAY_MS 5000
+#define ROUND_TIMEOUT_MS 30000
 #define DEVICE_OFFSET_MULTIPLICATOR 1
 #define SPEED_OF_LIGHT_M_PER_S 299792458.0
 #define SPEED_OF_LIGHT_M_PER_UWB_US ((SPEED_OF_LIGHT_M_PER_S * 1.0E-15) * 15650.0) // around 0.00469175196
 
 
-#define NUM_NODES 14
-
 /* ieee802.15.4 device */
 static struct ieee802154_radio_api *radio_api;
 static const struct device *ieee802154_dev;
+
+#define ENABLE_UART_OUT 1
 
 
 static int sent_packets = 0;
@@ -53,17 +56,15 @@ static void init_tx_queue();
 
 static const struct device* uart_device = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 static void uart_out(char* msg) {
+    #if ENABLE_UART_OUT
     while (*msg != '\0') {
         uart_poll_out(uart_device, *msg);
         msg++;
     }
+    #endif
 }
 
 extern void matrix_test();
-
-
-extern uint16_t get_own_node_id();
-extern int8_t get_node_number(uint16_t node_id);
 
 
 static uint16_t own_number = 0;
@@ -82,6 +83,8 @@ static struct msg last_msg[NUM_NODES];
 static struct msg cur_msg[NUM_NODES];
 
  //
+
+
 
 
 static inline void ts_from_uint(ts_t *ts_out, uint64_t val) {
@@ -177,9 +180,11 @@ void on_round_end(uint16_t round_number) {
    relative_drifts[own_number] = 1.0;
 
 
+
+
    uart_out("{");
 
-   char buf[256];
+    char buf[256];
     snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
     uart_out(buf);
 
@@ -246,11 +251,15 @@ void on_round_end(uint16_t round_number) {
         }
     }
 
+
+
     // copy all of the current messages to the last round
     memcpy(&last_msg, &cur_msg, sizeof(last_msg));
-
     // reset cur_msg!
     memset(&cur_msg, 0, sizeof(cur_msg));
+
+    estimate();
+
 }
 
 //
@@ -323,12 +332,15 @@ void on_round_end(uint16_t round_number) {
 int main(void) {
 
     LOG_INF("Getting node id");
-    own_number = get_node_number(get_own_node_id());
+    int16_t signed_node_id = get_node_number(get_own_node_id());
 
-    if (own_number == -1) {
+    if (signed_node_id < 0) {
         LOG_INF("Node number NOT FOUND! Shutting down :(");
         return;
     }
+
+    own_number = signed_node_id;
+    LOG_INF("GOT node id: %uuh", own_number);
 
     //LOG_INF("Testing ...");
     //matrix_test();

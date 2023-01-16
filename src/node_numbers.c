@@ -1,6 +1,6 @@
 #include <zephyr.h>
 #include <drivers/hwinfo.h>
-
+#include "node_numbers.h"
 
 
 uint16_t get_own_node_id() {
@@ -29,7 +29,7 @@ int8_t get_node_number(uint16_t node_id) {
         0x0e92  // 06 79 a6 59 fe 98
     };
 
-    for (int i = 0; i < sizeof(node_ids)/sizeof(node_ids[0]); i++) {
+    for (int i = 0; i < NUM_NODES && i < sizeof(node_ids)/sizeof(node_ids[0]); i++) {
         if (node_id == node_ids[i]) {
             return i;
         }
