@@ -7,9 +7,10 @@
 #include <stdio.h>
 
 
-#include "node_numbers.h"
+#include "nodes.h"
 #include "estimation.h"
 #include "uart.h"
+#include "measurements.h"
 
 LOG_MODULE_REGISTER(main);
 
@@ -236,7 +237,7 @@ void on_round_end(uint16_t round_number) {
                 float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_US;
 
                 int64_t est_cm = est_distance_in_m*100;
-                LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, est_cm, round_dur_a, delay_dur_b);
+                //LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, est_cm, round_dur_a, delay_dur_b);
             }
         }
     }
@@ -248,11 +249,8 @@ void on_round_end(uint16_t round_number) {
     // reset cur_msg!
     memset(&cur_msg, 0, sizeof(cur_msg));
 
-    if (round_number > 3) {
-        int64_t estimate_start = k_uptime_get();
-        estimate();
-        int64_t milliseconds_spent = k_uptime_delta(&estimate_start);
-        LOG_INF("Estimation required: ms: %lld", milliseconds_spent);
+    if (round_number % 5) {
+        estimate_all();
     }
 
 }

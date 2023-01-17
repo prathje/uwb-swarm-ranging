@@ -6,12 +6,9 @@
 #include <stdio.h>
 
 #include "estimation.h"
-#include "node_numbers.h"
+#include "nodes.h"
 #include "uart.h"
-
-#define NUM_NODE_PAIRS ((NUM_NODES*(NUM_NODES-1))/2)
-#define NUM_PARAMS (NUM_NODES+NUM_NODE_PAIRS)
-
+#include "measurements.h"
 
 LOG_MODULE_REGISTER(estimation);
 
@@ -31,43 +28,20 @@ LOG_MODULE_REGISTER(estimation);
     #define OP_MEAN arm_mean_f32
 #endif
 
-#define MAX_NUM_MEASUREMENTS 100
-
-static float32_t measurements[NUM_NODE_PAIRS][MAX_NUM_MEASUREMENTS] = {};
-static size_t num_measurements[NUM_NODE_PAIRS] = {0}; // note that this might overflow and wrap around if >= MAX_NUM_MEASUREMENTS
 
 
-static int32_t actual_antenna_delays[MAX_NUM_NODES] = {
-        8, 9, 7, 22, 11, 12, 7, 22, 22, 22, -14, -9, 9, -13
-};
-
-static float32_t actual_distances[(MAX_NUM_NODES*(MAX_NUM_NODES-1))/2] = {
-        1.8515,
-        3.8663, 2.4000,
-        4.8000, 3.8663, 1.8515,
-        2.7906, 1.1697, 2.0611, 3.6807,
-        4.7103, 3.1636, 1.1697, 2.2152, 2.4000,
-        4.1928, 3.3407, 3.7470, 4.8311, 2.4000, 3.3941,
-        5.6550, 4.4497, 3.3407, 3.8340, 3.3941, 2.4000, 2.4000,
-        6.6822, 5.9458, 5.6984, 6.2363, 4.9477, 4.9477, 2.6833, 2.6833,
-        7.3394, 6.8883, 7.0942, 7.7219, 6.0000, 6.4622, 3.6000, 4.3267, 1.6971,
-        8.2624, 7.4892, 6.8883, 7.1405, 6.4622, 6.0000, 4.3267, 3.6000, 1.6971, 2.4000,
-        9.2086, 9.2429, 9.5494, 9.8142, 8.5466, 9.0379, 6.2460, 6.9031, 4.4023, 3.0926, 4.2666,
-        9.5868, 9.2122, 9.2122, 9.5868, 8.3167, 8.4881, 5.9276, 6.1657, 3.5531, 2.3850, 2.9271, 2.0809,
-        9.8142, 9.5494, 9.2429, 9.2086, 8.7134, 8.5466, 6.4724, 6.2460, 4.0620, 3.5276, 3.0926, 2.4000, 2.0809
-};
-
-
+// the maximum of supported nodes for estimation (limited by memory sadly)
+#define EST_MAX_NODES 8
+#define EST_MAX_PAIRS (PAIRS(EST_MAX_NODES))
+#define EST_MAX_PARAMS (EST_MAX_NODES + EST_MAX_PAIRS)
+#define EST_MAX_INPUTS (EST_MAX_PAIRS + EST_MAX_PARAMS)
 
 // TODO: They use up a LOT of memory! We could later allocate them dynamically (if we would need that extra space!)
-static MATRIX_ENTRY_TYPE matrix_data_a[(NUM_NODE_PAIRS+NUM_PARAMS) * NUM_PARAMS];
-static MATRIX_ENTRY_TYPE matrix_data_b[NUM_PARAMS * (NUM_NODE_PAIRS+NUM_PARAMS)];
-static MATRIX_ENTRY_TYPE matrix_data_c[NUM_PARAMS * (NUM_NODE_PAIRS+NUM_PARAMS)];
-
-
+static MATRIX_ENTRY_TYPE matrix_data_a[EST_MAX_INPUTS * EST_MAX_PARAMS];
+static MATRIX_ENTRY_TYPE matrix_data_b[EST_MAX_PARAMS * EST_MAX_INPUTS];
+static MATRIX_ENTRY_TYPE matrix_data_c[EST_MAX_PARAMS * EST_MAX_INPUTS];
 
 void print_matrix(MATRIX *m) {
-return;
     char buf[32];
     for (int r = 0; r < m->numRows; r++) {
          for (int c = 0; c < m->numCols; c++) {
@@ -80,96 +54,43 @@ return;
 }
 
 
-inline size_t pair_index(uint8_t a, uint8_t b) {
-       if (a > b) {
-            size_t num_pairs_before = (a*(a-1))/2; // we have exactly that sum of measurements before
-            return num_pairs_before+b;
-       } else {
-            return pair_index(b, a);
-       }
-}
+static void estimate(
+    uint8_t num_nodes,
+    float32_t delays_out[EST_MAX_NODES],
+    float32_t tofs_out[EST_MAX_PAIRS],
+    float32_t mean_measurements[EST_MAX_PAIRS],
+    bool delay_known[EST_MAX_NODES],
+    float32_t known_delays[EST_MAX_NODES],
+    bool tof_known[EST_MAX_PAIRS],
+    float32_t known_tofs[EST_MAX_PAIRS]
+) {
 
-
-void estimation_add_measurement(uint8_t a, uint8_t b, float32_t val) {
-    if (a == b) {
-        LOG_WRN("Tried to add a measurement to itself!");
-        return;
-    } else if (val == 0.0) {
-        LOG_WRN("Tried to add a zero measurement!");
+    if (num_nodes >= EST_MAX_NODES) {
+        LOG_ERR("Num Nodes too high!");
         return;
     }
-
-    size_t pi = pair_index(a, b);
-    measurements[pi][num_measurements[pi] % MAX_NUM_MEASUREMENTS] = val;    // we save it in a circular buffer
-    num_measurements[pi]++;
-}
-
-
-MATRIX_ENTRY_TYPE get_measurement_for_design_matrix(size_t pi) {
-    if (num_measurements[pi] == 0) {
-        return 0.0;
-    } else {
-        float32_t sum = 0.0;
-
-        size_t num = MIN(num_measurements[pi], MAX_NUM_MEASUREMENTS);
-        for(size_t i = 0; i < num; i++) {
-            sum += measurements[pi][i];
-        }
-
-        return sum / ((float)num);
-    }
-}
-
-
-
-
-void estimate() {
-
-    bool delays_known = true;
-    bool distances_known = false;
-
-    // for now we add artificial delay values! -> this means that our matrix should be full rank and we should get a result
-
-    // if 0.0 ->  not known
-    float32_t known_delays[NUM_NODES] = {0.0};
-    float32_t known_distances[NUM_NODE_PAIRS] = {0.0};
-
-
-    if (delays_known) {
-        for(int i = 0; i < NUM_NODES; i++) {
-            known_delays[i] = (float32_t) actual_antenna_delays[i];
-            if (known_delays[i] == 0.0) {
-                LOG_WRN("Known delay is zero!");
-                return;
-            }
-        }
-    }
-
-    if (distances_known) {
-        for(int i = 0; i < NUM_NODE_PAIRS; i++) {
-            known_distances[i] = actual_distances[i];
-            if (known_distances[i] == 0.0) {
-                LOG_WRN("Known delay is zero!");
-                return;
-            }
-        }
-    }
-
-    LOG_INF("Estimate!!");
 
     int ret = 0;
 
-    // make sure that matrices are empty! we only need to reset matrix A since the others are overriden
-    memset(&matrix_data_a, 0, sizeof(matrix_data_a));
+    uint32_t num_pairs = PAIRS(num_nodes); // we use the actual number of input pairs
+    uint32_t num_params = num_nodes+num_pairs; // we use the actual number of input pairs
 
-    for(size_t i = 0; i < sizeof(matrix_data_a)/sizeof(matrix_data_a[0]); i++) {
-        if (matrix_data_a[i] != 0.0) {
-            LOG_WRN("Matrix A not resetted!");
+    uint32_t num_input_rows = PAIRS(num_nodes); // we use the actual number of input pairs
+    // we add all known delays and distances as input rows as well!
+    for(int i = 0; i < num_nodes; i++) {
+        if (delay_known[i]) {
+            num_input_rows++;
+        }
+    }
+     for(int i = 0; i < num_nodes; i++) {
+        if (tof_known[i]) {
+            num_input_rows++;
         }
     }
 
-    LOG_DBG("A");
-
+    // make sure that matrices are empty! we only need to reset matrix A since the others are overriden anyway
+    // this zero matrix a
+    memset(&matrix_data_a, 0, sizeof(matrix_data_a));
 
     MATRIX mat_a;
     MATRIX mat_b;
@@ -177,9 +98,9 @@ void estimate() {
 
     // assign memory regions
     {
-        mat_a.pData = matrix_data_a; //malloc(NUM_PARAMS * NUM_PARAMS * sizeof(float16_t));
-        mat_b.pData = matrix_data_b; //malloc(NUM_PARAMS * NUM_PARAMS * sizeof(float16_t));
-        mat_c.pData = matrix_data_c; //malloc(NUM_PARAMS * NUM_PARAMS * sizeof(float16_t));
+        mat_a.pData = matrix_data_a; //malloc(EST_MAX_PARAMS * EST_MAX_PARAMS * sizeof(float16_t));
+        mat_b.pData = matrix_data_b; //malloc(EST_MAX_PARAMS * EST_MAX_PARAMS * sizeof(float16_t));
+        mat_c.pData = matrix_data_c; //malloc(EST_MAX_PARAMS * EST_MAX_PARAMS * sizeof(float16_t));
 
         // TODO: This cannot happen as we statically defined them.
 //        if (mat_a.pData == NULL || mat_b.pData == NULL || mat_c.pData == NULL ) {
@@ -188,18 +109,17 @@ void estimate() {
 //        }
     }
 
-    LOG_DBG("B");
     // Store X in mat_a
     {
         // TODO: we do not these this many rows usually!
-        mat_a.numRows = NUM_NODE_PAIRS+NUM_PARAMS;
-        mat_a.numCols = NUM_PARAMS;
+        mat_a.numRows = num_input_rows;
+        mat_a.numCols = num_params;
 
         // the rows are the measurement values (and known parameters)
         // the columns correspond to the parameters aligned as : Combined Delay Values, Node_Pairs Distances
 
         // we first store all of the measurements
-        for(size_t a = 0; a < NUM_NODES; a++) {
+        for(size_t a = 0; a < num_nodes; a++) {
             for(size_t b = 0; b < a; b++) {
                 if (a == b) {
                     continue;
@@ -208,41 +128,41 @@ void estimate() {
                 size_t pi = pair_index(a, b);
 
                 // TODO: we are currently calculating this measurement twice...
-                MATRIX_ENTRY_TYPE val = get_measurement_for_design_matrix(pi);
+                MATRIX_ENTRY_TYPE val = (MATRIX_ENTRY_TYPE)get_mean_measurement(pi);
                 if (val != 0.0) {
-                    matrix_data_a[(pi * NUM_PARAMS) + a] = 1.0;
-                    matrix_data_a[(pi * NUM_PARAMS) + b] = 1.0;
-                    matrix_data_a[(pi * NUM_PARAMS) + NUM_NODES + pi] = 2.0;    // the distance is of factor two
+                    matrix_data_a[(pi * num_params) + a] = 1.0;
+                    matrix_data_a[(pi * num_params) + b] = 1.0;
+                    matrix_data_a[(pi * num_params) + num_nodes + pi] = 2.0;    // the distance is of factor two
                 }
 
                 // Y value will be set later
             }
         }
 
+        // we have num_pairs rows in the matrix now
+        // we now store the known delay values (up to num_nodes)
+        int input_row = num_pairs;
 
-
-
-        // we have NODE_PAIRS rows in the matrix now
-        // we now store the known delay values (up to NUM_NODES)
-        for(size_t a = 0; a < NUM_NODES; a++) {
-
-            if (known_delays[a] != 0.0) {
-                matrix_data_a[NUM_NODE_PAIRS * NUM_PARAMS + a * NUM_PARAMS + a] = 1.0;
+        for(size_t a = 0; a < num_nodes; a++) {
+            if (delay_known[a]) {
+                matrix_data_a[input_row * num_params + a] = 1.0;
+                input_row++; // increase the row
             }
             // Y value will be set later
         }
 
-         // we have NODE_PAIRS+NUM_NODES rows in the matrix now
+         // we have NODE_PAIRS+num_nodes rows in the matrix now
         // we now store the known distance values (NODE_PAIRS)
-        for(size_t a = 0; a < NUM_NODES; a++) {
+        for(size_t a = 0; a < num_nodes; a++) {
             for(size_t b = 0; b < a; b++) {
                 if (a == b) {
                     continue;
                 }
                 size_t pi = pair_index(a, b);
 
-                if (known_distances[pi] != 0.0) {
-                    matrix_data_a[(NUM_NODE_PAIRS+NUM_NODES) * NUM_PARAMS + pi * NUM_PARAMS + NUM_NODES + pi] = 1.0;
+                if (tof_known[pi]) {
+                    matrix_data_a[input_row * num_params + num_nodes + pi] = 1.0;
+                    input_row++; // increase the row
                 }
                 // Y value will be set later
             }
@@ -254,8 +174,8 @@ void estimate() {
 
     // transpose X to mat_b
     {
-        mat_b.numRows = NUM_PARAMS;
-        mat_b.numCols = NUM_NODE_PAIRS+NUM_PARAMS;
+        mat_b.numRows = num_params;
+        mat_b.numCols = num_input_rows;
 
         ret = OP_TRANS(&mat_a, &mat_b);
          if (ret == ARM_MATH_SIZE_MISMATCH ) {
@@ -267,8 +187,8 @@ void estimate() {
 
     // multiply X^T (mat_b) with X (mat_a) and store in mat_c
     {
-        mat_c.numRows = NUM_PARAMS;
-        mat_c.numCols = NUM_PARAMS;
+        mat_c.numRows = num_params;
+        mat_c.numCols = num_params;
 
         ret = OP_MULT(&mat_b, &mat_a, &mat_c);
 
@@ -281,8 +201,8 @@ void estimate() {
     // invert (X^T X) (mat_c) and store in mat_a
     // we keep mat_b as we need the transpose in the next step
     {
-        mat_a.numRows = NUM_PARAMS;
-        mat_a.numCols = NUM_PARAMS;
+        mat_a.numRows = num_params;
+        mat_a.numCols = num_params;
 
         ret = OP_INV(&mat_c, &mat_a);
 
@@ -294,8 +214,8 @@ void estimate() {
 
     // multiply (X^T X)^{-1} (mat_a) with X^T (mat_b) and store in mat_c
     {
-        mat_c.numRows = NUM_PARAMS;
-        mat_c.numCols = NUM_PARAMS+NUM_NODE_PAIRS;
+        mat_c.numRows = num_params;
+        mat_c.numCols = num_input_rows;
 
         ret = OP_MULT(&mat_a, &mat_b, &mat_c);
 
@@ -308,198 +228,156 @@ void estimate() {
 
     // load Y into mat_b
     {
-        mat_b.numRows = NUM_NODE_PAIRS+NUM_PARAMS;
+        mat_b.numRows = num_input_rows;
         mat_b.numCols = 1;
         //TODO: implement this
 
         // we first store all of the measurements
-        for(size_t a = 0; a < NUM_NODES; a++) {
+        for(size_t a = 0; a < num_nodes; a++) {
             for(size_t b = 0; b < a; b++) {
                 if (a == b) {
                     continue;
                 }
                 size_t pi = pair_index(a, b);
-                MATRIX_ENTRY_TYPE val = get_measurement_for_design_matrix(pi);
+                MATRIX_ENTRY_TYPE val = get_mean_measurement(pi);
                 if (val != 0.0) {
                     matrix_data_b[pi] = val * 2.0; // we need to scale this accordingly
                 }
             }
         }
 
-        // we have NODE_PAIRS rows in the matrix now
-        // we now store the known delay values (up to NUM_NODES)
-        for(size_t a = 0; a < NUM_NODES; a++) {
+        // we have num_pairs rows in the matrix now
+        // we now store the known delay values (up to num_nodes)
+        int input_row = num_pairs;
 
-            if (known_delays[a] != 0.0) {
-                matrix_data_b[NUM_NODE_PAIRS + a] = known_delays[a];
+        for(size_t a = 0; a < num_nodes; a++) {
+            if (delay_known[a]) {
+                matrix_data_b[input_row] = known_delays[a];
+                input_row++; // increase the row
             }
-            // Y value will be set later
         }
 
-         // we have NODE_PAIRS+NUM_NODES rows in the matrix now
+        // we have NODE_PAIRS+num_nodes rows in the matrix now
         // we now store the known distance values (NODE_PAIRS)
-        for(size_t a = 0; a < NUM_NODES; a++) {
+        for(size_t a = 0; a < num_nodes; a++) {
             for(size_t b = 0; b < a; b++) {
                 if (a == b) {
                     continue;
                 }
                 size_t pi = pair_index(a, b);
 
-                if (known_distances[pi] != 0.0) {
-                    matrix_data_b[(NUM_NODE_PAIRS+NUM_NODES) + pi] = known_distances[pi];
+                if (tof_known[pi]) {
+                    matrix_data_b[input_row] = known_tofs[pi];
+                    input_row++; // increase the row
                 }
             }
         }
+
         LOG_DBG("Matrix Y:");
         print_matrix(&mat_b);
     }
 
     // multiply (X^T X)^{-1}  X^T (mat_c) with Y (mat_b) and store in mat_a
     {
-        mat_a.numRows = NUM_PARAMS;
+        mat_a.numRows = num_params;
         mat_a.numCols = 1;
 
         ret = OP_MULT(&mat_c, &mat_b, &mat_a);
 
         if (ret == ARM_MATH_SIZE_MISMATCH ) {
              LOG_INF("SIZE MISMATCH... E");
-            return false;
+            return;
         }
+    }
+
+    // copy the antenna delays
+    for (int i = 0; i < num_nodes; i++) {
+        delays_out[i] = matrix_data_a[i];
+    }
+
+    // copy the distances
+
+    for(int p = 0; p < num_pairs; p++) {
+        tofs_out[p] = matrix_data_a[num_nodes + p];
     }
 
     LOG_DBG("Estimate:");
     print_matrix(&mat_a);
 
-    for(size_t a = 0; a < NUM_NODES; a++) {
-            for(size_t b = 0; b < a; b++) {
-                if (a == b) {
-                    continue;
-                }
-
-                size_t pi = pair_index(a, b);
-
-                MATRIX_ENTRY_TYPE tof_in_uwb_us = matrix_data_a[NUM_NODES + pi];
-
-                float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_US;
-                int est_cm = est_distance_in_m*100;
-                LOG_DBG("Estimated cm %d, %d: %d", a, b, est_cm);
-            }
-        }
-
-    return true;
 }
 
 
-//
-//bool matrix_inference() {
-//    LOG_INF("matrix_test_f16");
-//
-//    int ret = 0;
-//
-//    // TODO: They use up a LOT of memory!
-//    static MATRIX_ENTRY_TYPE matrix_data_a[NUM_PARAMS * NUM_PARAMS];
-//    static MATRIX_ENTRY_TYPE matrix_data_b[NUM_PARAMS * NUM_PARAMS];
-//    static MATRIX_ENTRY_TYPE matrix_data_c[NUM_PARAMS * NUM_PARAMS];
-//
-//    MATRIX mat_a;
-//    MATRIX mat_b;
-//    MATRIX mat_c;
-//
-//    // assign memory regions
-//    {
-//        mat_a.pData = matrix_data_a; //malloc(NUM_PARAMS * NUM_PARAMS * sizeof(float16_t));
-//        mat_b.pData = matrix_data_b; //malloc(NUM_PARAMS * NUM_PARAMS * sizeof(float16_t));
-//        mat_c.pData = matrix_data_c; //malloc(NUM_PARAMS * NUM_PARAMS * sizeof(float16_t));
-//
-//
-//        if (mat_a.pData == NULL || mat_b.pData == NULL || mat_c.pData == NULL ) {
-//             LOG_INF("Allocation failed...");
-//            return false;
-//        }
-//    }
-//
-//
-//    // Store X in mat_a
-//    {
-//        // TODO: actually store it!
-//        mat_a.numRows = NUM_PARAMS;
-//        mat_a.numCols = NUM_PARAMS;
-//    }
-//
-//    // transpose X to mat_b
-//    {
-//        mat_b.numRows = NUM_PARAMS;
-//        mat_b.numCols = NUM_PARAMS;
-//
-//        ret = OP_TRANS(&mat_a, &mat_b);
-//         if (ret == ARM_MATH_SIZE_MISMATCH ) {
-//             LOG_INF("SIZE MISMATCH... A");
-//            return false;
-//        }
-//    }
-//
-//    // multiply X^T (mat_b) with X (mat_a) and store in mat_c
-//    {
-//        mat_c.numRows = NUM_PARAMS;
-//        mat_c.numCols = NUM_PARAMS;
-//
-//        ret = OP_MULT(&mat_b, &mat_a, &mat_c);
-//
-//        if (ret == ARM_MATH_SIZE_MISMATCH ) {
-//             LOG_INF("SIZE MISMATCH... B");
-//            return false;
-//        }
-//    }
-//
-//
-//    // invert (X^T X) (mat_c) and store in mat_a
-//    // we keep mat_b as we need the transpose in the next step
-//    {
-//        mat_a.numRows = NUM_PARAMS;
-//        mat_a.numCols = NUM_PARAMS;
-//
-//        ret = OP_MULT(&mat_c, &mat_a);
-//
-//        if (ret == ARM_MATH_SIZE_MISMATCH ) {
-//             LOG_INF("SIZE MISMATCH... C");
-//            return false;
-//        }
-//    }
-//
-//    // multiply (X^T X)^{-1} (mat_a) with X^T (mat_b) and store in mat_c
-//    {
-//        mat_c.numRows = NUM_PARAMS;
-//        mat_c.numCols = NUM_PARAMS;
-//
-//        ret = OP_MULT(&mat_a, &mat_b, &mat_c);
-//
-//        if (ret == ARM_MATH_SIZE_MISMATCH ) {
-//             LOG_INF("SIZE MISMATCH... D");
-//            return false;
-//        }
-//    }
-//
-//
-//    // load Y into mat_b
-//    {
-//        //TODO: implement this
-//        mat_b.numRows = NUM_PARAMS;
-//        mat_b.numCols = 1;
-//    }
-//
-//    // multiply (X^T X)^{-1}  X^T (mat_c) with Y (mat_b) and store in mat_a
-//    {
-//        mat_a.numRows = NUM_PARAMS;
-//        mat_a.numCols = 1;
-//
-//        ret = OP_MULT(&mat_c, &mat_b, &mat_a);
-//
-//        if (ret == ARM_MATH_SIZE_MISMATCH ) {
-//             LOG_INF("SIZE MISMATCH... E");
-//            return false;
-//        }
-//    }
-//     LOG_INF("Done!!");
-//
-//    return true;
-//}
+void estimate_all() {
+
+    static float32_t delays_out[EST_MAX_NODES] = {0.0};
+    static float32_t tofs_out[EST_MAX_PAIRS] = {0.0};
+    static float32_t mean_measurements[EST_MAX_PAIRS] = {0.0};
+
+    static bool delay_known[EST_MAX_NODES];
+    static float32_t known_delays[EST_MAX_NODES];
+    static bool tof_known[EST_MAX_PAIRS];
+    static float32_t known_tofs[EST_MAX_PAIRS];
+
+    int64_t estimate_start = 0;
+    int64_t estimate_duration = 0;
+
+
+    for(int n = 2; n <= 3; n++) {
+
+        // TODO: Should we reorder nodes?
+
+        //initialize known values (measurements, delays, distances
+        for(int i = 0; i < n; i++) {
+            known_delays[i] = (float32_t) node_factory_antenna_delays[i];
+        }
+
+         for(int p = 0; p < PAIRS(n); p++) {
+            // TODO: If we reorder, we have to be careful with those distances!
+            mean_measurements[p] = get_mean_measurement(p);
+            known_tofs[p] = node_distances[p] / SPEED_OF_LIGHT_M_PER_UWB_US;
+        }
+
+        // first estimate antenna delays based on all known distances
+        {
+            memset(tof_known, 1, sizeof(tof_known));
+            memset(delay_known, 0, sizeof(delay_known));
+
+            estimate_start = k_uptime_get();
+            estimate(
+                n,
+                delays_out,
+                tofs_out,
+                mean_measurements,
+                delay_known,
+                known_delays,
+                tof_known,
+                known_tofs
+            );
+            estimate_duration = k_uptime_delta(&estimate_start);
+
+            LOG_INF("Estimation required: ms: %lld", estimate_duration);
+
+            // log the antenna delays
+            for (int i = 0; i < n; i++) {
+                int est = (int)delays_out[i];
+                LOG_DBG("Estimated antenna delay %d, %d (%d)", i, est, node_factory_antenna_delays[i]);
+            }
+             // log the distances
+
+              for(size_t a = 0; a < n; a++) {
+                for(size_t b = 0; b < a; b++) {
+                    if (a == b) {
+                        continue;
+                    }
+
+                    size_t pi = pair_index(a, b);
+                    float32_t est = tofs_out[pi];
+                    float32_t est_distance_in_m = est*SPEED_OF_LIGHT_M_PER_UWB_US;
+                    int est_cm = est_distance_in_m*100;
+                    int actual_cm = known_tofs[pi]*100;
+                    LOG_DBG("Estimated cm %d, %d: %d (%d)", a, b, est_cm, actual_cm);
+                }
+            }
+        }
+    }
+}
