@@ -5,26 +5,24 @@
 #include <net/ieee802154_radio.h>
 #include <drivers/ieee802154/dw1000.h>
 #include <stdio.h>
-#include <drivers/uart.h>
+
 
 #include "node_numbers.h"
 #include "estimation.h"
+#include "uart.h"
 
 LOG_MODULE_REGISTER(main);
 
 #define MAX_PACKETS -1
 #define INITIAL_DELAY_MS 5000
-#define ROUND_TIMEOUT_MS 30000
+#define ROUND_TIMEOUT_MS 5000
 #define DEVICE_OFFSET_MULTIPLICATOR 1
-#define SPEED_OF_LIGHT_M_PER_S 299792458.0
-#define SPEED_OF_LIGHT_M_PER_UWB_US ((SPEED_OF_LIGHT_M_PER_S * 1.0E-15) * 15650.0) // around 0.00469175196
+
 
 
 /* ieee802.15.4 device */
 static struct ieee802154_radio_api *radio_api;
 static const struct device *ieee802154_dev;
-
-#define ENABLE_UART_OUT 1
 
 
 static int sent_packets = 0;
@@ -53,16 +51,6 @@ K_SEM_DEFINE(msg_tx_buf_sem, 0, 1);
 
 static void init_tx_queue();
 
-
-static const struct device* uart_device = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
-static void uart_out(char* msg) {
-    #if ENABLE_UART_OUT
-    while (*msg != '\0') {
-        uart_poll_out(uart_device, *msg);
-        msg++;
-    }
-    #endif
-}
 
 extern void matrix_test();
 
@@ -243,6 +231,8 @@ void on_round_end(uint16_t round_number) {
 
                 float tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
 
+                estimation_add_measurement(a, b, tof_in_uwb_us);
+
                 float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_US;
 
                 int64_t est_cm = est_distance_in_m*100;
@@ -258,7 +248,12 @@ void on_round_end(uint16_t round_number) {
     // reset cur_msg!
     memset(&cur_msg, 0, sizeof(cur_msg));
 
-    estimate();
+    if (round_number > 3) {
+        int64_t estimate_start = k_uptime_get();
+        estimate();
+        int64_t milliseconds_spent = k_uptime_delta(&estimate_start);
+        LOG_INF("Estimation required: ms: %lld", milliseconds_spent);
+    }
 
 }
 
@@ -340,7 +335,7 @@ int main(void) {
     }
 
     own_number = signed_node_id;
-    LOG_INF("GOT node id: %uuh", own_number);
+    LOG_INF("GOT node id: %hhu", own_number);
 
     //LOG_INF("Testing ...");
     //matrix_test();

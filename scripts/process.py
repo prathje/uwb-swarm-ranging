@@ -351,10 +351,10 @@ def get_dist(a, b):
     return np.linalg.norm(pos_a - pos_b)
 
 
-for a in dev_positions:
-    for b in dev_positions:
-        if a < b:
-            print((a,b, round(get_dist(a, b), 2)))
+for (a, da) in enumerate(dev_positions):
+    for (b, db) in enumerate(dev_positions):
+        if a > b:
+            print((a,b, round(get_dist(da, db), 4)))
 
 
 if __name__ == "__main__":
