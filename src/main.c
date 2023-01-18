@@ -16,8 +16,11 @@ LOG_MODULE_REGISTER(main);
 
 #define MAX_PACKETS -1
 #define INITIAL_DELAY_MS 5000
-#define ROUND_TIMEOUT_MS 5000
+#define ROUND_TIMEOUT_MS 25
+#define POST_ROUND_DELAY_MS 50
+#define ESTIMATION_ROUND_DELAY_MS 5000
 #define DEVICE_OFFSET_MULTIPLICATOR 1
+#define IS_EST_ROUND(X) ((X)%100 == 0)
 
 
 
@@ -66,6 +69,7 @@ static void output_msg_to_uart(struct msg* m);
 
 static int64_t round_start = 0;
 static int64_t round_end = 0;
+static int64_t last_msg_ms = 0;
 
 // we save the last & current msgs of every node
 static struct msg last_msg[NUM_NODES];
@@ -168,38 +172,37 @@ void on_round_end(uint16_t round_number) {
    rd_own_dur[own_number] = 1;
    relative_drifts[own_number] = 1.0;
 
+    if (IS_EST_ROUND(round_number)) {
+        uart_out("{");
+
+        char buf[256];
+        snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
+        uart_out(buf);
 
 
+       uart_out(", \"relative_drifts\": ");
+       output_relative_drifts(rd_own_dur, rd_other_dur);
 
-   uart_out("{");
+       uart_out(", \"last_msg\": [");
 
-    char buf[256];
-    snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
-    uart_out(buf);
+       for(int i = 0; i < NUM_NODES; i++) {
+            output_msg_to_uart(&last_msg[i]);
 
+            if(i < NUM_NODES-1) {
+                uart_out(", ");
+            }
+         }
+       uart_out("], \"cur_msg\": [");
 
-   uart_out(", \"relative_drifts\": ");
-   output_relative_drifts(rd_own_dur, rd_other_dur);
+       for(int i = 0; i < NUM_NODES; i++) {
+            output_msg_to_uart(&cur_msg[i]);
 
-   uart_out(", \"last_msg\": [");
-
-   for(int i = 0; i < NUM_NODES; i++) {
-        output_msg_to_uart(&last_msg[i]);
-
-        if(i < NUM_NODES-1) {
-            uart_out(", ");
+            if(i < NUM_NODES-1) {
+                uart_out(", ");
+            }
         }
-     }
-   uart_out("], \"cur_msg\": [");
-
-   for(int i = 0; i < NUM_NODES; i++) {
-        output_msg_to_uart(&cur_msg[i]);
-
-        if(i < NUM_NODES-1) {
-            uart_out(", ");
-        }
+       uart_out("]}\n");
     }
-   uart_out("]}\n");
 
 
     // we now check every combination
@@ -230,7 +233,7 @@ void on_round_end(uint16_t round_number) {
                 float round_a_corrected = (float)(round_dur_a) * relative_drifts[a];
                 float delay_b_corrected =  (float)(delay_dur_b) * relative_drifts[b];
 
-                float tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
+                measurement_t tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
 
                 estimation_add_measurement(a, b, tof_in_uwb_us);
 
@@ -246,10 +249,11 @@ void on_round_end(uint16_t round_number) {
 
     // copy all of the current messages to the last round
     memcpy(&last_msg, &cur_msg, sizeof(last_msg));
+
     // reset cur_msg!
     memset(&cur_msg, 0, sizeof(cur_msg));
 
-    if (round_number % 5) {
+    if (IS_EST_ROUND(round_number)) {
         estimate_all();
     }
 
@@ -354,6 +358,7 @@ int main(void) {
     {
         (void)memset(&msg_tx_buf, 0, sizeof(msg_tx_buf));
         (void)memset(&last_msg, 0, sizeof(last_msg));
+        (void)memset(&cur_msg, 0, sizeof(cur_msg));
 
         // TODO: Add own addr!
         msg_tx_buf.number = own_number&0xFF;
@@ -390,16 +395,29 @@ int main(void) {
         }
 
         if (IS_INITIATOR) {
-            // we advance the round \o/
-            msg_tx_buf.round += 1;
-            LOG_INF("Advancing new round! (%hu)", msg_tx_buf.round);
 
-            k_sem_give(&tx_sem);
+            int64_t ms_since_last_msg = k_uptime_get() - last_msg_ms;
 
-            round_start = k_uptime_get();
-            round_end = 0;
+            if (ms_since_last_msg >= ROUND_TIMEOUT_MS) {
 
-            k_msleep(ROUND_TIMEOUT_MS);
+                //LOG_INF("Advancing to new round! (%hu)", msg_tx_buf.round+1);
+
+                k_sem_take(&msg_tx_buf_sem, K_FOREVER); // we take this to be sure that on_round_end finished!
+                // we then add more delay!
+                if (IS_EST_ROUND(msg_tx_buf.round)) {
+                    k_msleep(ESTIMATION_ROUND_DELAY_MS);
+                } else {
+                    k_msleep(POST_ROUND_DELAY_MS);
+                }
+
+                msg_tx_buf.round += 1;
+                k_sem_give(&tx_sem);
+
+                k_sem_give(&msg_tx_buf_sem);
+
+                    round_start = k_uptime_get();
+                    round_end = 0;
+            }
         }
 
 
@@ -522,6 +540,8 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
             uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
             // save this message for later processing
             memcpy(&cur_msg[rx_number], rx_msg, sizeof(struct msg));
+
+            last_msg_ms = k_uptime_get(); // we save this value to restart the round when we are the initiator
 
             k_sem_take(&msg_tx_buf_sem, K_FOREVER);
             {
@@ -699,6 +719,7 @@ static void tx_thread(void)
 
     while (true) {
         k_sem_take(&tx_sem, K_FOREVER);
+        last_msg_ms = k_uptime_get();
         transmit();
     }
 }

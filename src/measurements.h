@@ -5,7 +5,10 @@
 #include <logging/log.h>
 #include <stdio.h>
 
-void estimation_add_measurement(uint8_t a, uint8_t b, float32_t val);
-float32_t get_mean_measurement(size_t pi);
+
+typedef float32_t measurement_t;
+
+void estimation_add_measurement(uint8_t a, uint8_t b, measurement_t val);
+measurement_t get_mean_measurement(size_t pi);
 
 #endif

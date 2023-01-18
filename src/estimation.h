@@ -11,6 +11,4 @@
 
 void estimate_all();
 
-void estimation_add_measurement(uint8_t a, uint8_t b, float32_t val);
-
 #endif

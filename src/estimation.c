@@ -12,15 +12,15 @@
 
 LOG_MODULE_REGISTER(estimation);
 
-#if 1
-    #define MATRIX_ENTRY_TYPE float16_t
+#if 0
+    typedef float16_t matrix_entry_t;
     #define MATRIX arm_matrix_instance_f16
     #define OP_MULT arm_mat_mult_f16
     #define OP_INV arm_mat_inverse_f16
     #define OP_TRANS arm_mat_trans_f16
     #define OP_MEAN arm_mean_f16
 #else
-    #define MATRIX_ENTRY_TYPE float32_t
+    typedef float32_t matrix_entry_t;
     #define MATRIX arm_matrix_instance_f32
     #define OP_MULT arm_mat_mult_f32
     #define OP_INV arm_mat_inverse_f32
@@ -31,15 +31,15 @@ LOG_MODULE_REGISTER(estimation);
 
 
 // the maximum of supported nodes for estimation (limited by memory sadly)
-#define EST_MAX_NODES 8
+#define EST_MAX_NODES 7
 #define EST_MAX_PAIRS (PAIRS(EST_MAX_NODES))
 #define EST_MAX_PARAMS (EST_MAX_NODES + EST_MAX_PAIRS)
 #define EST_MAX_INPUTS (EST_MAX_PAIRS + EST_MAX_PARAMS)
 
 // TODO: They use up a LOT of memory! We could later allocate them dynamically (if we would need that extra space!)
-static MATRIX_ENTRY_TYPE matrix_data_a[EST_MAX_INPUTS * EST_MAX_PARAMS];
-static MATRIX_ENTRY_TYPE matrix_data_b[EST_MAX_PARAMS * EST_MAX_INPUTS];
-static MATRIX_ENTRY_TYPE matrix_data_c[EST_MAX_PARAMS * EST_MAX_INPUTS];
+static matrix_entry_t matrix_data_a[EST_MAX_INPUTS * EST_MAX_PARAMS];
+static matrix_entry_t matrix_data_b[EST_MAX_PARAMS * EST_MAX_INPUTS];
+static matrix_entry_t matrix_data_c[EST_MAX_PARAMS * EST_MAX_INPUTS];
 
 void print_matrix(MATRIX *m) {
     char buf[32];
@@ -65,7 +65,7 @@ static void estimate(
     float32_t known_tofs[EST_MAX_PAIRS]
 ) {
 
-    if (num_nodes >= EST_MAX_NODES) {
+    if (num_nodes > EST_MAX_NODES) {
         LOG_ERR("Num Nodes too high!");
         return;
     }
@@ -316,20 +316,20 @@ static void estimate(
 
 void estimate_all() {
 
-    static float32_t delays_out[EST_MAX_NODES] = {0.0};
-    static float32_t tofs_out[EST_MAX_PAIRS] = {0.0};
-    static float32_t mean_measurements[EST_MAX_PAIRS] = {0.0};
+    static measurement_t delays_out[EST_MAX_NODES] = {0.0};
+    static measurement_t tofs_out[EST_MAX_PAIRS] = {0.0};
+    static measurement_t mean_measurements[EST_MAX_PAIRS] = {0.0};
 
     static bool delay_known[EST_MAX_NODES];
-    static float32_t known_delays[EST_MAX_NODES];
+    static measurement_t known_delays[EST_MAX_NODES];
     static bool tof_known[EST_MAX_PAIRS];
-    static float32_t known_tofs[EST_MAX_PAIRS];
+    static measurement_t known_tofs[EST_MAX_PAIRS];
 
     int64_t estimate_start = 0;
     int64_t estimate_duration = 0;
 
 
-    for(int n = 2; n <= 3; n++) {
+    for(int n = EST_MAX_NODES; n <= EST_MAX_NODES; n++) {
 
         // TODO: Should we reorder nodes?
 
@@ -376,6 +376,11 @@ void estimate_all() {
             // we now use the new delay values
             for(int i = 0; i < n; i++) {
                 known_delays[i] = delays_out[i];
+            }
+             for(int p = 0; p < PAIRS(n); p++) {
+                // TODO: If we reorder, we have to be careful with those distances!
+                mean_measurements[p] = get_mean_measurement(p);
+                known_tofs[p] = node_distances[p] / SPEED_OF_LIGHT_M_PER_UWB_TU;
             }
 
             memset(tof_known, 0, sizeof(tof_known));

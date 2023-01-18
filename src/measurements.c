@@ -15,7 +15,7 @@ LOG_MODULE_REGISTER(measurements);
 static float32_t measurements[NUM_PAIRS][MAX_NUM_MEASUREMENTS] = {};
 static size_t num_measurements[NUM_PAIRS] = {0}; // note that this might overflow and wrap around if >= MAX_NUM_MEASUREMENTS
 
-void estimation_add_measurement(uint8_t a, uint8_t b, float32_t val) {
+void estimation_add_measurement(uint8_t a, uint8_t b, measurement_t val) {
     if (a == b) {
         LOG_WRN("Tried to add a measurement to itself!");
         return;
@@ -29,7 +29,7 @@ void estimation_add_measurement(uint8_t a, uint8_t b, float32_t val) {
     num_measurements[pi]++;
 }
 
-float32_t get_mean_measurement(size_t pi) {
+measurement_t get_mean_measurement(size_t pi) {
     if (num_measurements[pi] == 0) {
         return 0.0;
     } else {
@@ -40,6 +40,6 @@ float32_t get_mean_measurement(size_t pi) {
             sum += measurements[pi][i];
         }
 
-        return sum / ((float)num);
+        return sum / ((float32_t)num);
     }
 }
