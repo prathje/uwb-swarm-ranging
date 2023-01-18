@@ -234,7 +234,7 @@ void on_round_end(uint16_t round_number) {
 
                 estimation_add_measurement(a, b, tof_in_uwb_us);
 
-                float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_US;
+                float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
 
                 int64_t est_cm = est_distance_in_m*100;
                 //LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, est_cm, round_dur_a, delay_dur_b);

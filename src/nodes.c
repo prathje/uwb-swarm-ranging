@@ -3,8 +3,8 @@
 #include "nodes.h"
 
 
-int16_t node_factory_antenna_delays[NUM_NODES] = {
-        8, 9, 7, 22, 11, 12, 7, 22, 22, 22, -14, -9, 9, -13
+int16_t node_factory_antenna_delay_offsets[NUM_NODES] = {
+       8, 9, 7, 22, 11, 12, 7, 22, 22, 22, -14, -9, 9, -13
 };
 
 float32_t node_distances[NUM_PAIRS] = {

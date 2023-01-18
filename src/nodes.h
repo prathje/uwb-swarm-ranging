@@ -11,7 +11,7 @@
 #define NUM_PAIRS (PAIRS(NUM_NODES))
 
 
-extern int16_t node_factory_antenna_delays[NUM_NODES];
+extern int16_t node_factory_antenna_delay_offsets[NUM_NODES];
 extern float32_t node_distances[NUM_PAIRS];
 
 
