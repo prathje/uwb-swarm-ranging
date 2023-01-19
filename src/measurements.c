@@ -7,7 +7,7 @@
 #include "measurements.h"
 #include "nodes.h"
 
-#define MAX_NUM_MEASUREMENTS 64
+#define MAX_NUM_MEASUREMENTS 1000
 
 LOG_MODULE_REGISTER(measurements);
 

@@ -31,10 +31,7 @@ LOG_MODULE_REGISTER(estimation);
 
 
 // the maximum of supported nodes for estimation (limited by memory sadly)
-#define EST_MAX_NODES 7
-#define EST_MAX_PAIRS (PAIRS(EST_MAX_NODES))
-#define EST_MAX_PARAMS (EST_MAX_NODES + EST_MAX_PAIRS)
-#define EST_MAX_INPUTS (EST_MAX_PAIRS + EST_MAX_PARAMS)
+
 
 // TODO: They use up a LOT of memory! We could later allocate them dynamically (if we would need that extra space!)
 static matrix_entry_t matrix_data_a[EST_MAX_INPUTS * EST_MAX_PARAMS];
@@ -42,6 +39,7 @@ static matrix_entry_t matrix_data_b[EST_MAX_PARAMS * EST_MAX_INPUTS];
 static matrix_entry_t matrix_data_c[EST_MAX_PARAMS * EST_MAX_INPUTS];
 
 void print_matrix(MATRIX *m) {
+return;
     char buf[32];
     for (int r = 0; r < m->numRows; r++) {
          for (int c = 0; c < m->numCols; c++) {
@@ -159,8 +157,8 @@ static void estimate(
             return;
          }
 
-        LOG_DBG("Matrix X:");
-        print_matrix(&mat_a);
+        //LOG_DBG("Matrix X:");
+        //print_matrix(&mat_a);
     }
 
     // transpose X to mat_b
@@ -252,8 +250,8 @@ static void estimate(
             }
         }
 
-        LOG_DBG("Matrix Y:");
-        print_matrix(&mat_b);
+//        LOG_DBG("Matrix Y:");
+//        print_matrix(&mat_b);
     }
 
     // multiply (X^T X)^{-1}  X^T (mat_c) with Y (mat_b) and store in mat_a
@@ -270,8 +268,8 @@ static void estimate(
     }
 
 
-    LOG_DBG("Estimate:");
-    print_matrix(&mat_a);
+//    LOG_DBG("Estimate:");
+//    print_matrix(&mat_a);
 
     {
         // copy stuff to out buffers
@@ -398,7 +396,7 @@ void estimate_all() {
                     float32_t est_distance_in_m = est*SPEED_OF_LIGHT_M_PER_UWB_TU;
                     int est_cm = est_distance_in_m*100;
                     int actual_cm = known_tofs[pi]*SPEED_OF_LIGHT_M_PER_UWB_TU*100;
-                    LOG_DBG("Estimated cm %d, %d: %d (%d)", a, b, est_cm, actual_cm);
+                    //LOG_DBG("Estimated cm %d, %d: %d (%d)", a, b, est_cm, actual_cm);
                 }
             }
         }

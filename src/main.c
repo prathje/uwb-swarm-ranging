@@ -124,14 +124,14 @@ void on_round_end(uint16_t round_number) {
      for(int i = 0; i < NUM_NODES; i++) {
         if(last_msg[i].round != round_number - 1) {
             memset(&last_msg[i], 0, sizeof(last_msg[i]));
-            LOG_DBG("LastMsg invalid value of %d, expected %hu, got %hu", i, round_number - 1, last_msg[i].round);
+            //LOG_DBG("LastMsg invalid value of %d, expected %hu, got %hu", i, round_number - 1, last_msg[i].round);
         }
      }
 
      for(int i = 0; i < NUM_NODES; i++) {
         if(cur_msg[i].round != round_number) {
             memset(&cur_msg[i], 0, sizeof(cur_msg[i]));
-            LOG_DBG("CurMsg invalid value of %d, expected %hu, got %hu", i, round_number, cur_msg[i].round);
+            //LOG_DBG("CurMsg invalid value of %d, expected %hu, got %hu", i, round_number, cur_msg[i].round);
         }
      }
 
@@ -172,37 +172,37 @@ void on_round_end(uint16_t round_number) {
    rd_own_dur[own_number] = 1;
    relative_drifts[own_number] = 1.0;
 
-    if (IS_EST_ROUND(round_number)) {
-        uart_out("{");
-
-        char buf[256];
-        snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
-        uart_out(buf);
-
-
-       uart_out(", \"relative_drifts\": ");
-       output_relative_drifts(rd_own_dur, rd_other_dur);
-
-       uart_out(", \"last_msg\": [");
-
-       for(int i = 0; i < NUM_NODES; i++) {
-            output_msg_to_uart(&last_msg[i]);
-
-            if(i < NUM_NODES-1) {
-                uart_out(", ");
-            }
-         }
-       uart_out("], \"cur_msg\": [");
-
-       for(int i = 0; i < NUM_NODES; i++) {
-            output_msg_to_uart(&cur_msg[i]);
-
-            if(i < NUM_NODES-1) {
-                uart_out(", ");
-            }
-        }
-       uart_out("]}\n");
-    }
+//    if (IS_EST_ROUND(round_number)) {
+//        uart_out("{");
+//
+//        char buf[256];
+//        snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
+//        uart_out(buf);
+//
+//
+//       uart_out(", \"relative_drifts\": ");
+//       output_relative_drifts(rd_own_dur, rd_other_dur);
+//
+//       uart_out(", \"last_msg\": [");
+//
+//       for(int i = 0; i < NUM_NODES; i++) {
+//            output_msg_to_uart(&last_msg[i]);
+//
+//            if(i < NUM_NODES-1) {
+//                uart_out(", ");
+//            }
+//         }
+//       uart_out("], \"cur_msg\": [");
+//
+//       for(int i = 0; i < NUM_NODES; i++) {
+//            output_msg_to_uart(&cur_msg[i]);
+//
+//            if(i < NUM_NODES-1) {
+//                uart_out(", ");
+//            }
+//        }
+//       uart_out("]}\n");
+//    }
 
 
     // we now check every combination
@@ -577,7 +577,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                     // oh wow, this was the last one!
                     // we could technically directly start the next round as an initiator
                     int64_t milliseconds_spent = k_uptime_delta(&round_start);
-                    LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
+                    //LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
                     on_round_end(msg_tx_buf.round);
                 }
             }
@@ -679,7 +679,7 @@ static int transmit() {
                 if (own_number == NUM_NODES-1) {
                     // oh wow, this was the last one! -> we end the round now
                     int64_t milliseconds_spent = k_uptime_delta(&round_start);
-                    LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
+                    //LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
                     on_round_end(msg_tx_buf.round);
                 }
             }
