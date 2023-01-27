@@ -16,7 +16,7 @@ LOG_MODULE_REGISTER(main);
 
 #define MAX_PACKETS -1
 #define INITIAL_DELAY_MS 5000
-#define ROUND_TIMEOUT_MS 25
+#define ROUND_TIMEOUT_MS 250
 #define POST_ROUND_DELAY_MS 50
 #define ESTIMATION_ROUND_DELAY_MS 5000
 #define DEVICE_OFFSET_MULTIPLICATOR 1
@@ -137,81 +137,62 @@ void on_round_end(uint16_t round_number) {
 
    // determine all relative drift rates for now:
 
-   static float relative_drifts[NUM_NODES];
 
-   static uint64_t rd_own_dur[NUM_NODES] = {0};
-   static uint64_t rd_other_dur[NUM_NODES] = {0};
+    static float32_t relative_drifts[NUM_NODES];
+   uart_out("{\"type\": \"drift_estimation\", ");
+
+   char buf[256];
+   snprintf(buf, sizeof(buf), "\"round\": %hu, \"durations\": [", round_number);
+    uart_out(buf);
 
    for(int i = 0; i < NUM_NODES; i++) {
+
+        uint64_t rd_other_dur, rd_own_dur = 0;
+
         if (i == own_number) {
-            continue;
-        }
-
-        // we can extract last and current timestamps
-        rd_other_dur[i] = get_uint_duration(&cur_msg[i].tx_ts, &last_msg[i].tx_ts);
-
-        if (i < own_number) {
-            // in this case, the other node transmitted before us
-            // so we have to extract rx timestamps from our own cur and last msg
-            rd_own_dur[i] = get_uint_duration(&cur_msg[own_number].rx_ts[i], &last_msg[own_number].rx_ts[i]);
+           rd_other_dur = 1;
+           rd_own_dur = 1;
         } else {
-            // i > own_number: in this case, the rx timestamp from the current round is actually in our current tx_buf and the last one in cur_msg
-            rd_own_dur[i] = get_uint_duration(&msg_tx_buf.rx_ts[i], &cur_msg[own_number].rx_ts[i]);
+            // we can extract last and current timestamps
+            rd_other_dur = get_uint_duration(&cur_msg[i].tx_ts, &last_msg[i].tx_ts);
+
+            if (i < own_number) {
+                // in this case, the other node transmitted before us
+                // so we have to extract rx timestamps from our own cur and last msg
+                rd_own_dur = get_uint_duration(&cur_msg[own_number].rx_ts[i], &last_msg[own_number].rx_ts[i]);
+            } else {
+                // i > own_number: in this case, the rx timestamp from the current round is actually in our current tx_buf and the last one in cur_msg
+                rd_own_dur = get_uint_duration(&msg_tx_buf.rx_ts[i], &cur_msg[own_number].rx_ts[i]);
+            }
         }
 
-        if ( rd_other_dur[i] != 0 && rd_own_dur[i] != 0) {
-            relative_drifts[i] = ((float)rd_own_dur[i]) / (float)(rd_other_dur[i]);
+        // log values!
+        snprintf(buf, sizeof(buf), "[%llu, %llu]", rd_own_dur, rd_other_dur);
+        uart_out(buf);
+
+        if (i < NUM_NODES-1) {
+            uart_out(", ");
+        }
+
+        if ( rd_other_dur != 0 && rd_own_dur != 0) {
+            relative_drifts[i] = ((float)rd_own_dur) / (float)(rd_other_dur);
         } else {
             // just set it to zero for now...
             relative_drifts[i] = 0.0;
         }
    }
+   uart_out("]}\n");
 
-   // our own relative drift is just one ofc
-   rd_other_dur[own_number] = 1;
-   rd_own_dur[own_number] = 1;
-   relative_drifts[own_number] = 1.0;
 
-//    if (IS_EST_ROUND(round_number)) {
-//        uart_out("{");
-//
-//        char buf[256];
-//        snprintf(buf, sizeof(buf), "\"number\": %hhu, \"round\": %hhu", own_number, round_number);
-//        uart_out(buf);
-//
-//
-//       uart_out(", \"relative_drifts\": ");
-//       output_relative_drifts(rd_own_dur, rd_other_dur);
-//
-//       uart_out(", \"last_msg\": [");
-//
-//       for(int i = 0; i < NUM_NODES; i++) {
-//            output_msg_to_uart(&last_msg[i]);
-//
-//            if(i < NUM_NODES-1) {
-//                uart_out(", ");
-//            }
-//         }
-//       uart_out("], \"cur_msg\": [");
-//
-//       for(int i = 0; i < NUM_NODES; i++) {
-//            output_msg_to_uart(&cur_msg[i]);
-//
-//            if(i < NUM_NODES-1) {
-//                uart_out(", ");
-//            }
-//        }
-//       uart_out("]}\n");
-//    }
 
+     uart_out("{\"type\": \"raw_measurements\", ");
+     snprintf(buf, sizeof(buf), "\"round\": %hu, \"measurements\": [", round_number);
+     uart_out(buf);
 
     // we now check every combination
     // TODO: we might also just want to check for ourselves
-    for (int a = 0; a < NUM_NODES; a++) {
-        for(int b = 0; b < NUM_NODES; b++) {
-            if(a == b) {
-                continue;
-            }
+    for(int b = 0; b < NUM_NODES; b++) { // TODO: update again some time
+        for (int a = 0; a < b; a++) {
 
             // we extract the ranging as initiated by A:
             uint64_t round_dur_a = 0;
@@ -219,7 +200,7 @@ void on_round_end(uint16_t round_number) {
 
             round_dur_a = get_uint_duration(&cur_msg[a].rx_ts[b], &last_msg[a].tx_ts);
 
-            if (a < b) {
+            if (a < b) {// TODO: this is automatically given as of right now
                 // the response delay of b should be in the last_msg as well
                 delay_dur_b = get_uint_duration(&last_msg[b].tx_ts, &last_msg[b].rx_ts[a]);
             } else {
@@ -230,20 +211,53 @@ void on_round_end(uint16_t round_number) {
 
             if (round_dur_a != 0 && delay_dur_b != 0 && relative_drifts[a] != 0.0 && relative_drifts[b] != 0.0) {
 
-                float round_a_corrected = (float)(round_dur_a) * relative_drifts[a];
-                float delay_b_corrected =  (float)(delay_dur_b) * relative_drifts[b];
 
-                measurement_t tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
+                measurement_t tof_in_uwb_us = 0.0;
+
+//                float32_t round_a_corrected = (float32_t)(round_dur_a) * relative_drifts[a];
+//                float32_t delay_b_corrected =  (float32_t)(delay_dur_b) * relative_drifts[b];
+//                tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
+                tof_in_uwb_us = ((float32_t)(round_dur_a) - (float32_t)(delay_dur_b) + (relative_drifts[a] - 1.0)*(float32_t)(round_dur_a) -  (relative_drifts[b] - 1.0)*(float32_t)(delay_dur_b))*0.5;
+//
+//                {
+//                float32_t round_a_corrected = (float32_t)(round_dur_a) * relative_drifts[a];
+//                float32_t delay_b_corrected =  (float32_t)(delay_dur_b) * relative_drifts[b];
+//
+//
+//                measurement_t
+//
+//                int64_t tmp_a = round_dur_a;
+//                int64_t tmp_b = delay_dur_b;
+//                int64_t tmp_c = relative_drifts[a]*1000.0;
+//                int64_t tmp_d = relative_drifts[b]*1000.0;
+//                int64_t tmp_e = tof_in_uwb_us*1000.0;
+//                int64_t tmp_f = tof2_in_uwb_us*1000.0;
+//
+//                LOG_DBG("measurement: %lld, %lld, %lld,%lld,%lld,%lld", tmp_a, tmp_b, tmp_c, tmp_d, tmp_e, tmp_f);
+//
+//                }
 
                 estimation_add_measurement(a, b, tof_in_uwb_us);
+
+                int64_t int_val = tof_in_uwb_us * 1000000000.0f;
+                snprintf(buf, sizeof(buf), "[%llu, %llu, %lld]", round_dur_a, delay_dur_b, int_val);
+                uart_out(buf);
 
                 float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
 
                 int64_t est_cm = est_distance_in_m*100;
                 //LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, est_cm, round_dur_a, delay_dur_b);
+            } else {
+                uart_out("null");
             }
+
+            if (b != NUM_NODES - 1 || a < b - 1) {
+                uart_out(", ");
+            }
+
         }
     }
+    uart_out("]}\n");
 
 
 
@@ -254,7 +268,7 @@ void on_round_end(uint16_t round_number) {
     memset(&cur_msg, 0, sizeof(cur_msg));
 
     if (IS_EST_ROUND(round_number)) {
-        estimate_all();
+        estimate_all(round_number);
     }
 
 }
@@ -415,8 +429,8 @@ int main(void) {
 
                 k_sem_give(&msg_tx_buf_sem);
 
-                    round_start = k_uptime_get();
-                    round_end = 0;
+                round_start = k_uptime_get();
+                round_end = 0;
             }
         }
 
@@ -443,21 +457,6 @@ static void net_pkt_hexdump(struct net_pkt *pkt, const char *str)
 }
 
 
-
-static void output_relative_drifts(uint64_t own_dur[], uint64_t other_dur[]) {
-    // write open parentheses
-    char buf[256];
-
-    uart_out("[");
-    for(size_t i = 0; i < NUM_NODES; i ++) {
-        snprintf(buf, sizeof(buf), "{\"rx_dur\": %llu, \"tx_dur\": %llu}", own_dur[i], other_dur[i]);
-        uart_out(buf);
-        if (i < NUM_NODES-1) {
-            uart_out(", ");
-        }
-    }
-    uart_out("]");
-}
 
 
 static void output_msg_to_uart(struct msg* m) {
@@ -517,8 +516,6 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
     struct net_buf *buf = pkt->buffer;
     int ret = 0;
 
-    int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);
-
     //LOG_WRN("Got data of length %d", len);
 
     if (len > sizeof(msg_header) + 2 && !memcmp(msg_header, net_buf_pull_mem(buf, sizeof(msg_header)), sizeof(msg_header))) {
@@ -535,9 +532,19 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
             uint8_t rx_number = rx_msg->number;
             uint16_t rx_round = rx_msg->round;
 
+            //LOG_DBG("Received (n: %hhu, r: %hu)", rx_number, rx_round);
+
             // TODO: CHECK IF WE would need to ignore this msg
 
             uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
+
+            #if 1
+                int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);
+
+                int8_t bias_correction = get_range_bias_by_rssi(rssi);
+                rx_ts -= bias_correction;
+            #endif
+
             // save this message for later processing
             memcpy(&cur_msg[rx_number], rx_msg, sizeof(struct msg));
 
@@ -558,7 +565,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                             LOG_WRN("Received outdated round from predecessor!!!"); // this is NOT good
                             // TODO: how to handle this case?
                         } else {
-                            LOG_INF("Values seem outdated... Resetting..."); // note that we can waste time in this case since we are the next to transmit anyway!
+                            LOG_INF("Values seem outdated... Resetting...my: %d, rx: %d", msg_tx_buf.round, rx_round); // note that we can waste time in this case since we are the next to transmit anyway!
                             // the received round is a lot more progressed than we are
                             // we hence cannot be sure that our received timestamps are still valid and reset them!
                             // we reset the tx_buf Note that we still hold msg_tx_buf_sem
@@ -720,6 +727,7 @@ static void tx_thread(void)
     while (true) {
         k_sem_take(&tx_sem, K_FOREVER);
         last_msg_ms = k_uptime_get();
+        k_msleep(2); // we sleep a bit to make sure that everyone received our messages.
         transmit();
     }
 }
