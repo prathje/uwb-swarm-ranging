@@ -33,7 +33,10 @@ west build -b decawave_dwm1001_dev --pristine auto
 ```
 
 
-
+In the container you can also easily install script dependencies as follows:
+```commandline
+pip3 install numpy pandas matplotlib
+```
 ## Scripts
 
 ### Serial Monitor
