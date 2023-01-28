@@ -221,11 +221,58 @@ def extract_measurements(msg_iter):
 
                     record['calculated_tof'] = None
                     record['calculated_tof_single'] = None
+                    record['calculated_tof_single_v2'] = None
+                    record['calculated_tof_single_v3'] = None
                     if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur']]:
                         record['calculated_tof'] = (record['relative_drift_a'] *record['round_dur'] - record['relative_drift_b'] * record['response_dur'])*0.5*METER_PER_DWT_TS
-                        record['calculated_tof_single'] = (np.subtract(np.multiply(record['relative_drift_a_single'], np.float32(record['round_dur'])), np.multiply(record['relative_drift_b_single'], np.float32(record['response_dur']))))*0.5*METER_PER_DWT_TS
+                        record['calculated_tof_single'] = (
+                                                              np.subtract(
+                                                                np.multiply(
+                                                                    np.divide(
+                                                                        np.float32(record['own_dur_a']),
+                                                                        np.float32(record['other_dur_a'])),
+                                                                    np.float32(record['round_dur'])),
+                                                                  np.multiply(
+                                                                      np.divide(
+                                                                          np.float32(record['own_dur_b']),
+                                                                          np.float32(record['other_dur_b'])),
+                                                                      np.float32(record['response_dur'])))
+                                                          )*0.5*METER_PER_DWT_TS
+                        # record['calculated_tof_single_v2'] = np.subtract(
+                        #                                           np.divide(
+                        #                                                 np.multiply(np.float32(record['own_dur_a']),
+                        #                                                             np.float32(record['round_dur'])),
+                        #                                                 np.float32(record['other_dur_a'])
+                        #                                           ),
+                        #                                           np.divide(
+                        #                                               np.multiply(np.float32(record['own_dur_b']),
+                        #                                                           np.float32(record['response_dur'])),
+                        #                                               np.float32(record['other_dur_b'])
+                        #                                           )
+                        #                                   ) * 0.5 * METER_PER_DWT_TS
+
+                        accurator = 10
+                        record['calculated_tof_single_v3'] = np.float64(np.add(
+                            np.subtract(np.longlong(record['round_dur']*accurator), np.longlong(record['response_dur']*accurator)),
+                            np.subtract(
+                                np.floor_divide(
+                                    np.multiply(
+                                        np.subtract(np.longlong(record['own_dur_a']*accurator), np.longlong(record['other_dur_a']*accurator)),
+                                        np.longlong(record['round_dur'])
+                                    ),
+                                    np.longlong(record['other_dur_a'])
+                                ),
+                                np.floor_divide(
+                                    np.multiply(
+                                        np.subtract(np.longlong(record['own_dur_b']*accurator), np.longlong(record['other_dur_b']*accurator)),
+                                        np.longlong(record['response_dur'])
+                                    ),
+                                    np.longlong(record['other_dur_b'])
+                                )
+                            )
+                        )) * (1.0/accurator) * 0.5 * METER_PER_DWT_TS
                     #print(record['estimated_tof'], record['calculated_tof'])
-                    #print(record['estimated_tof'], record['calculated_tof'], record['calculated_tof_single'])
+                    print(record['calculated_tof'], record['calculated_tof_single_v3'])
                     records.append(record)
     return records
 
