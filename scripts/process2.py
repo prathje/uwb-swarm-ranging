@@ -164,7 +164,6 @@ def extract_measurements(msg_iter):
     # put all messages into (d, round) sets
     devices = dev_positions.keys()
 
-    records = []
     for r in rounds:
         for d in devices:
             for (a, da) in enumerate(dev_positions):
@@ -272,14 +271,11 @@ def extract_measurements(msg_iter):
                             )
                         )) * (1.0/accurator) * 0.5 * METER_PER_DWT_TS
                     #print(record['estimated_tof'], record['calculated_tof'])
-                    records.append(record)
-    return records
+                    yield record
 
 
 def extract_estimations(msg_iter):
-    print("A")
     rounds, estimations = extract_types(msg_iter, ['estimation'])
-    print(rounds)
 
     devices = dev_positions.keys()
 
@@ -315,33 +311,34 @@ def extract_estimations(msg_iter):
                         record['est_distance_factory'] = None
                         record['est_distance_calibrated'] = None
 
-                    records.append(record)
-    return records
+                    yield record
 
 
 if __name__ == "__main__":
     with open("data/serial_output_with_measurements_new.log") as f:
 
-
-        #meas_df = pandas.DataFrame.from_records(extract_measurements(parse_messages_from_lines(f)))
+        meas_df = pandas.DataFrame.from_records(extract_measurements(parse_messages_from_lines(f)))
 
         # we first plot the number of measurements for all pairs
 
-        #df = meas_df[(meas_df['device'] == 'dwm1001-1')]
-        #df = df.sort_values(by='initiator')
+        df = meas_df[(meas_df['device'] == 'dwm1001-1')]
+        df = df.sort_values(by='initiator')
 
-        #df = df[['pair',  'initiator', 'responder', 'round', 'estimated_tof', 'calculated_tof', 'calculated_tof_single', 'calculated_tof_int_10']]
+        df = df[['pair',  'initiator', 'responder', 'round', 'estimated_tof', 'calculated_tof', 'calculated_tof_single', 'calculated_tof_int_10']]
 
-        #df = df[(df['initiator'] == 0) & ((df['responder'] == 7))]
+        df = df[(df['initiator'] == 3) & ((df['responder'] == 9))]
 
-        #df = df[['round', 'estimated_tof', 'calculated_tof', 'calculated_tof_single', 'calculated_tof_int_10']]
+        df = df[['round', 'estimated_tof', 'calculated_tof', 'calculated_tof_single', 'calculated_tof_int_10']]
 
-        #ax = df.plot( kind='scatter', x='round', y='calculated_tof', color='b', label='Python (64 bit)', alpha=0.5)
-        #ax = df.plot(ax=ax, kind='scatter', x='round', y='estimated_tof', color='r', label='C', alpha=0.5)
+        ax = df.plot( kind='scatter', x='round', y='calculated_tof', color='b', label='Python (64 bit)', alpha=0.5)
+        ax = df.plot(ax=ax, kind='scatter', x='round', y='estimated_tof', color='r', label='C', alpha=0.5)
         #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_single', color='b', label='C (32 bit)')
         #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_int_10', color='b', label='Python (Integer)')
 
-        #plt.show()
+        plt.show()
+
+        exit()
+
         #print(df)
 
         #df = df[['pair', 'measurement']]
