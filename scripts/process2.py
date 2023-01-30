@@ -193,7 +193,7 @@ def extract_measurements(msg_iter):
                         record['response_dur'] = msg['measurements'][pi][1]
 
                         if msg['measurements'][pi][2] is not None:
-                            record['estimated_tof'] = convert_logged_measurement(msg['measurements'][pi][2])*METER_PER_DWT_TS/1000000.0 # TODO: remove this last division later
+                            record['estimated_tof'] = convert_logged_measurement(msg['measurements'][pi][2])*METER_PER_DWT_TS
 
                     msg = drift_estimations.get((d, r), None)
                     record['own_dur_a'] = None
@@ -251,8 +251,8 @@ def extract_measurements(msg_iter):
                         #                                           )
                         #                                   ) * 0.5 * METER_PER_DWT_TS
 
-                        accurator = 10
-                        record['calculated_tof_single_v3'] = np.float64(np.add(
+                        accurator = math.pow(2, 10)
+                        record['calculated_tof_int_10'] = np.float64(np.add(
                             np.subtract(np.longlong(record['round_dur']*accurator), np.longlong(record['response_dur']*accurator)),
                             np.subtract(
                                 np.floor_divide(
@@ -272,13 +272,14 @@ def extract_measurements(msg_iter):
                             )
                         )) * (1.0/accurator) * 0.5 * METER_PER_DWT_TS
                     #print(record['estimated_tof'], record['calculated_tof'])
-                    print(record['calculated_tof'], record['calculated_tof_single_v3'])
                     records.append(record)
     return records
 
 
 def extract_estimations(msg_iter):
-    rounds, estimations = extract_types(msg_iter, ['estimations'])
+    print("A")
+    rounds, estimations = extract_types(msg_iter, ['estimation'])
+    print(rounds)
 
     devices = dev_positions.keys()
 
@@ -320,28 +321,28 @@ def extract_estimations(msg_iter):
 
 if __name__ == "__main__":
     with open("data/serial_output_with_measurements_new.log") as f:
-        dev_msg_iter = parse_messages_from_lines(f)
 
 
-        meas_df = pandas.DataFrame.from_records(extract_measurements(dev_msg_iter))
+        #meas_df = pandas.DataFrame.from_records(extract_measurements(parse_messages_from_lines(f)))
 
         # we first plot the number of measurements for all pairs
 
-        df = meas_df[(meas_df['device'] == 'dwm1001-1')]
-        df = df.sort_values(by='initiator')
+        #df = meas_df[(meas_df['device'] == 'dwm1001-1')]
+        #df = df.sort_values(by='initiator')
 
-        df = df[['pair', 'calculated_tof', 'initiator', 'responder', 'round', 'estimated_tof', 'calculated_tof_single']]
+        #df = df[['pair',  'initiator', 'responder', 'round', 'estimated_tof', 'calculated_tof', 'calculated_tof_single', 'calculated_tof_int_10']]
 
-        df = df[(df['initiator'] == 0) & ((df['responder'] == 7))]
+        #df = df[(df['initiator'] == 0) & ((df['responder'] == 7))]
 
-        df = df[['round', 'calculated_tof', 'estimated_tof', 'calculated_tof_single']]
+        #df = df[['round', 'estimated_tof', 'calculated_tof', 'calculated_tof_single', 'calculated_tof_int_10']]
 
-        ax1 = df.plot(kind='scatter', x='round', y='calculated_tof', color='r', label='Python (64 bit)')
-        ax2 = df.plot(kind='scatter', x='round', y='calculated_tof_single', ax=ax1, color='y', label='Python (32 bit)')
-        ax3 = df.plot(kind='scatter', x='round', y='estimated_tof', color='b', ax=ax2, label='C (32 bit)')
+        #ax = df.plot( kind='scatter', x='round', y='calculated_tof', color='b', label='Python (64 bit)', alpha=0.5)
+        #ax = df.plot(ax=ax, kind='scatter', x='round', y='estimated_tof', color='r', label='C', alpha=0.5)
+        #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_single', color='b', label='C (32 bit)')
+        #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_int_10', color='b', label='Python (Integer)')
 
-        plt.show()
-        print(df)
+        #plt.show()
+        #print(df)
 
         #df = df[['pair', 'measurement']]
         #df = df.groupby(['pair']).agg('count')
@@ -358,10 +359,9 @@ if __name__ == "__main__":
         # plt.show()
 
 
-        exit()
 
         # we now iterate through the messages and set the address as well
-        est_df = pandas.DataFrame.from_records(extract_estimations(dev_msg_iter))
+        est_df = pandas.DataFrame.from_records(extract_estimations(parse_messages_from_lines(f)))
 
         round = est_df['round'].max()
 
@@ -393,7 +393,7 @@ if __name__ == "__main__":
         #df = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']]
         df = df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
 
-        res= df.aggregate(func=['mean', 'std'])
+        res= df.aggregate(func=['median', 'mean', 'std'])
         ax = res.plot.bar()
         for container in ax.containers:
             ax.bar_label(container)

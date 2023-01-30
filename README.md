@@ -33,6 +33,12 @@ west build -b decawave_dwm1001_dev --pristine auto
 ```
 
 
+To run and deploy on Lille:
+```commandline
+scp ./build/zephyr/zephyr.elf USER@lille.iot-lab.info:~ && ssh USER@lille.iot-lab.info 'iotlab-experiment submit -d 5 -l lille,dwm1001,1-14,zephyr.elf'
+```
+
+
 In the container you can also easily install script dependencies as follows:
 ```commandline
 pip3 install numpy pandas matplotlib
@@ -49,3 +55,5 @@ python3 monitor.py </dev/tty.dev1> </dev/tty.dev2>
 
 The result should look something like this:
 ![Example](img/example.png)
+
+

@@ -64,7 +64,6 @@ static uint16_t own_number = 0;
 #define IS_INITIATOR (own_number == INITIATOR_ID)
 
 
-static void output_relative_drifts(uint64_t own_dur[], uint64_t other_dur[]);
 static void output_msg_to_uart(struct msg* m);
 
 static int64_t round_start = 0;
@@ -114,7 +113,6 @@ static inline uint64_t get_uint_duration(const ts_t *end_ts, const ts_t *start_t
     return end - start;
 }
 
-
 void on_round_end(uint16_t round_number) {
 
     // cur_msg contains all messages of the this round
@@ -138,7 +136,9 @@ void on_round_end(uint16_t round_number) {
    // determine all relative drift rates for now:
 
 
-    static float32_t relative_drifts[NUM_NODES];
+    static uint64_t own_dur[NUM_NODES];
+    static uint64_t other_dur[NUM_NODES];
+    static float32_t relative_drift_offsets[NUM_NODES];
    uart_out("{\"type\": \"drift_estimation\", ");
 
    char buf[256];
@@ -175,11 +175,13 @@ void on_round_end(uint16_t round_number) {
         }
 
         if ( rd_other_dur != 0 && rd_own_dur != 0) {
-            relative_drifts[i] = ((float)rd_own_dur) / (float)(rd_other_dur);
+            relative_drift_offsets[i] = (float32_t)((int64_t)rd_own_dur-(int64_t)rd_other_dur) / (float32_t)(rd_other_dur);
         } else {
-            // just set it to zero for now...
-            relative_drifts[i] = 0.0;
+            relative_drift_offsets[i] = NAN;
         }
+
+        own_dur[i] = rd_own_dur;
+        other_dur[i] = rd_other_dur;
    }
    uart_out("]}\n");
 
@@ -209,38 +211,38 @@ void on_round_end(uint16_t round_number) {
                 //delay_dur_b = get_uint_duration(&cur_msg[b].tx_ts, &cur_msg[b].rx_ts[a]);
             }
 
-            if (round_dur_a != 0 && delay_dur_b != 0 && relative_drifts[a] != 0.0 && relative_drifts[b] != 0.0) {
+            if (round_dur_a != 0 && delay_dur_b != 0 && !isnan(relative_drift_offsets[a]) && !isnan(relative_drift_offsets[b])) {
+                int64_t drift_offset_int = round(relative_drift_offsets[a]*(float32_t)round_dur_a - relative_drift_offsets[b]*(float32_t)delay_dur_b);
+                int64_t two_tof_int = (int64_t)round_dur_a - (int64_t)delay_dur_b + drift_offset_int;
 
+                //int64_t tof_in_uwb_us_shifted_2 = (int64_t)((own_dur[a]*round_dur_a*shift) / other_dur[a]) - (int64_t)((own_dur[b]*delay_dur_b*shift) / other_dur[b]);
 
-                measurement_t tof_in_uwb_us = 0.0;
+                measurement_t tof_in_uwb_us = ((float) two_tof_int) * 0.5;
 
-//                float32_t round_a_corrected = (float32_t)(round_dur_a) * relative_drifts[a];
-//                float32_t delay_b_corrected =  (float32_t)(delay_dur_b) * relative_drifts[b];
+//                float32_t round_a_corrected = (float32_t)(round_dur_a) * relative_drift_offsets[a];
+//                float32_t delay_b_corrected =  (float32_t)(delay_dur_b) * relative_drift_offsets[b];
 //                tof_in_uwb_us = (round_a_corrected - delay_b_corrected)*0.5;
-                tof_in_uwb_us = ((float32_t)(round_dur_a) - (float32_t)(delay_dur_b) + (relative_drifts[a] - 1.0)*(float32_t)(round_dur_a) -  (relative_drifts[b] - 1.0)*(float32_t)(delay_dur_b))*0.5;
 //
 //                {
-//                float32_t round_a_corrected = (float32_t)(round_dur_a) * relative_drifts[a];
-//                float32_t delay_b_corrected =  (float32_t)(delay_dur_b) * relative_drifts[b];
+//                float32_t round_a_corrected = (float32_t)(round_dur_a) * relative_drift_offsets[a];
+//                float32_t delay_b_corrected =  (float32_t)(delay_dur_b) * relative_drift_offsets[b];
 //
 //
 //                measurement_t
 //
 //                int64_t tmp_a = round_dur_a;
 //                int64_t tmp_b = delay_dur_b;
-//                int64_t tmp_c = relative_drifts[a]*1000.0;
-//                int64_t tmp_d = relative_drifts[b]*1000.0;
+//                int64_t tmp_c = relative_drift_offsets[a]*1000.0;
+//                int64_t tmp_d = relative_drift_offsets[b]*1000.0;
 //                int64_t tmp_e = tof_in_uwb_us*1000.0;
 //                int64_t tmp_f = tof2_in_uwb_us*1000.0;
 //
 //                LOG_DBG("measurement: %lld, %lld, %lld,%lld,%lld,%lld", tmp_a, tmp_b, tmp_c, tmp_d, tmp_e, tmp_f);
 //
 //                }
-
                 estimation_add_measurement(a, b, tof_in_uwb_us);
-
-                int64_t int_val = tof_in_uwb_us * 1000000000.0f;
-                snprintf(buf, sizeof(buf), "[%llu, %llu, %lld]", round_dur_a, delay_dur_b, int_val);
+                int64_t int_val = tof_in_uwb_us * 1000.0f;
+                snprintf(buf, sizeof(buf), "[%llu, %llu, %lld, %lld]", round_dur_a, delay_dur_b, int_val, two_tof_int);
                 uart_out(buf);
 
                 float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
@@ -320,8 +322,8 @@ void on_round_end(uint16_t round_number) {
 //                uint64_t round_a = response_rx_ts_a - init_tx_ts_a;
 //                uint64_t delay_b = response_tx_ts_b - init_rx_ts_b;
 //
-//                float round_a_corrected = ((float)(response_rx_ts_a - init_tx_ts_a)) * relative_drifts[a];
-//                float delay_b_corrected =  ((float)(response_tx_ts_b - init_rx_ts_b)) * relative_drifts[b];
+//                float round_a_corrected = ((float)(response_rx_ts_a - init_tx_ts_a)) * relative_drift_offsets[a];
+//                float delay_b_corrected =  ((float)(response_tx_ts_b - init_rx_ts_b)) * relative_drift_offsets[b];
 //
 //                if (round_a_corrected != 0.0 && delay_b != 0.0) {
 //                    float tof_in_uwb_us = (round_a_corrected - delay_b_corrected);
