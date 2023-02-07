@@ -7,19 +7,19 @@
 
 #define NUM_NODES 14
 
+
+
 #define PAIRS(X) (((X)*((X)-1))/2)
 #define NUM_PAIRS (PAIRS(NUM_NODES))
 
-
 extern int16_t node_factory_antenna_delay_offsets[NUM_NODES];
+extern uint16_t node_ids[NUM_NODES];
 extern float32_t node_distances[NUM_PAIRS];
 
 
 size_t pair_index(uint16_t a, uint16_t b);
-
 uint16_t get_own_node_id();
 int8_t get_node_number(uint16_t node_id);
-
 
 int8_t get_range_bias_by_rssi(int8_t rssi);
 

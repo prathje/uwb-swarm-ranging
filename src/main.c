@@ -348,7 +348,7 @@ int main(void) {
     int16_t signed_node_id = get_node_number(get_own_node_id());
 
     if (signed_node_id < 0) {
-        LOG_INF("Node number NOT FOUND! Shutting down :(");
+        LOG_INF("Node number NOT FOUND! Shutting down :( I am: 0x%04hx", get_own_node_id());
         return;
     }
 
