@@ -19,7 +19,6 @@ LOG_MODULE_REGISTER(main);
 #define ROUND_TIMEOUT_MS 250
 #define POST_ROUND_DELAY_MS 50
 #define ESTIMATION_ROUND_DELAY_MS 5000
-#define DEVICE_OFFSET_MULTIPLICATOR 1
 #define IS_EST_ROUND(X) ((X)%100 == 0)
 
 
@@ -74,6 +73,8 @@ static int64_t last_msg_ms = 0;
 static struct msg last_msg[NUM_NODES];
 static struct msg cur_msg[NUM_NODES];
 
+// save the last carrierintegrator value for each received message
+static int carrierintegrators[NUM_NODES];
  //
 
 
@@ -183,9 +184,18 @@ void on_round_end(uint16_t round_number) {
         own_dur[i] = rd_own_dur;
         other_dur[i] = rd_other_dur;
    }
+
+   uart_out("], \"carrierintegrators\": [");
+   for(int i = 0; i < NUM_NODES; i++) {
+        // log values!
+        snprintf(buf, sizeof(buf), " %d", carrierintegrators[i]);
+        uart_out(buf);
+        if (i < NUM_NODES-1) {
+            uart_out(", ");
+        }
+   }
+
    uart_out("]}\n");
-
-
 
      uart_out("{\"type\": \"raw_measurements\", ");
      snprintf(buf, sizeof(buf), "\"round\": %hu, \"measurements\": [", round_number);
@@ -271,8 +281,12 @@ void on_round_end(uint16_t round_number) {
 
     if (IS_EST_ROUND(round_number)) {
         estimate_all(round_number);
+        // we reset all messages! since the drift is kind of high
+        (void)memset(&last_msg, 0, sizeof(last_msg));
+        (void)memset(&cur_msg, 0, sizeof(cur_msg));
+        (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
+        (void)memset(&carrierintegrators, 0, sizeof(carrierintegrators));
     }
-
 }
 
 //
@@ -531,14 +545,17 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
         if (len >  0 && len % sizeof (struct msg)  == 0) {
             //size_t num_msg = len / sizeof (struct msg_ts);
 
+            // TODO: Check that rx_number is actually valid... -> buffer overflow!
+            // TODO: CHECK IF WE would need to ignore this msg
             uint8_t rx_number = rx_msg->number;
             uint16_t rx_round = rx_msg->round;
 
             //LOG_DBG("Received (n: %hhu, r: %hu)", rx_number, rx_round);
 
-            // TODO: CHECK IF WE would need to ignore this msg
-
             uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
+            int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
+
+            carrierintegrators[rx_number] = carrierintegrator;
 
             #if 1
                 int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);

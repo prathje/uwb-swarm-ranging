@@ -16,10 +16,7 @@ import numpy as np
 
 import pandas
 
-# TODO: CHOOSE THE TESTBED HERE!
-from testbed.trento_b import dev_positions, parse_messages_from_lines, devs
-
-from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts
+from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
 
 
 
@@ -36,9 +33,6 @@ def extract_types(msg_iter, types):
         by_round_and_dev[t] = {}
 
     for (ts, d, msg) in msg_iter:
-
-        if d != devs[0]:
-            continue
 
         if 'type' not in msg:
             continue
@@ -98,79 +92,35 @@ def extract_measurements(msg_iter):
                     record['own_dur_a'] = None
                     record['other_dur_a'] = None
                     record['relative_drift_a'] = None
-                    record['relative_drift_a_single'] = None
+                    record['relative_drift_a_ci'] = None
                     record['own_dur_b'] = None
                     record['other_dur_b'] = None
                     record['relative_drift_b'] = None
-                    record['relative_drift_b_single'] = None
+                    record['relative_drift_b_ci'] = None
 
-                    if msg is not None and msg['durations'][a] is not None:
-                        record['own_dur_a'] = msg['durations'][a][0]
-                        record['other_dur_a'] = msg['durations'][a][1]
-                        if record['own_dur_a'] != 0 and record['other_dur_a'] != 0:
-                            record['relative_drift_a'] = float(record['own_dur_a']) / float(record['other_dur_a'])
-                            record['relative_drift_a_single'] = np.divide(np.float32(record['own_dur_a']), np.float32(record['other_dur_a']))
+                    if msg is not None:
 
-                    if msg is not None and msg['durations'][b] is not None:
-                        record['own_dur_b'] = msg['durations'][b][0]
-                        record['other_dur_b'] = msg['durations'][b][1]
-                        if record['own_dur_b'] != 0 and record['other_dur_b'] != 0:
-                            record['relative_drift_b'] = float(record['own_dur_b']) / float(record['other_dur_b'])
-                            record['relative_drift_b_single'] = np.divide(np.float32(record['own_dur_b']), np.float32(record['other_dur_b']))
+                        if msg['carrierintegrators'][a] != 0:
+                            record['relative_drift_a_ci'] = ci_to_rd(msg['carrierintegrators'][a])
+                        if msg['carrierintegrators'][b] != 0:
+                            record['relative_drift_b_ci'] = ci_to_rd(msg['carrierintegrators'][b])
+
+                        if msg['durations'][a] is not None:
+                            record['own_dur_a'] = msg['durations'][a][0]
+                            record['other_dur_a'] = msg['durations'][a][1]
+                            if record['own_dur_a'] != 0 and record['other_dur_a'] != 0:
+                                record['relative_drift_a'] = float(record['own_dur_a']) / float(record['other_dur_a'])
+
+                        if msg['durations'][b] is not None:
+                            record['own_dur_b'] = msg['durations'][b][0]
+                            record['other_dur_b'] = msg['durations'][b][1]
+                            if record['own_dur_b'] != 0 and record['other_dur_b'] != 0:
+                                record['relative_drift_b'] = float(record['own_dur_b']) / float(record['other_dur_b'])
 
                     record['calculated_tof'] = None
-                    record['calculated_tof_single'] = None
-                    record['calculated_tof_single_v2'] = None
-                    record['calculated_tof_single_v3'] = None
                     if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur']]:
                         record['calculated_tof'] = convert_ts_to_m(record['relative_drift_a'] *record['round_dur'] - record['relative_drift_b'] * record['response_dur'])*0.5
-                        # record['calculated_tof_single'] = (
-                        #                                       np.subtract(
-                        #                                         np.multiply(
-                        #                                             np.divide(
-                        #                                                 np.float32(record['own_dur_a']),
-                        #                                                 np.float32(record['other_dur_a'])),
-                        #                                             np.float32(record['round_dur'])),
-                        #                                           np.multiply(
-                        #                                               np.divide(
-                        #                                                   np.float32(record['own_dur_b']),
-                        #                                                   np.float32(record['other_dur_b'])),
-                        #                                               np.float32(record['response_dur'])))
-                        #                                   )*0.5*METER_PER_DWT_TS
-                        # # record['calculated_tof_single_v2'] = np.subtract(
-                        # #                                           np.divide(
-                        # #                                                 np.multiply(np.float32(record['own_dur_a']),
-                        # #                                                             np.float32(record['round_dur'])),
-                        # #                                                 np.float32(record['other_dur_a'])
-                        # #                                           ),
-                        # #                                           np.divide(
-                        # #                                               np.multiply(np.float32(record['own_dur_b']),
-                        # #                                                           np.float32(record['response_dur'])),
-                        # #                                               np.float32(record['other_dur_b'])
-                        # #                                           )
-                        # #                                   ) * 0.5 * METER_PER_DWT_TS
-                        #
-                        # accurator = math.pow(2, 10)
-                        # record['calculated_tof_int_10'] = np.float64(np.add(
-                        #     np.subtract(np.longlong(record['round_dur']*accurator), np.longlong(record['response_dur']*accurator)),
-                        #     np.subtract(
-                        #         np.floor_divide(
-                        #             np.multiply(
-                        #                 np.subtract(np.longlong(record['own_dur_a']*accurator), np.longlong(record['other_dur_a']*accurator)),
-                        #                 np.longlong(record['round_dur'])
-                        #             ),
-                        #             np.longlong(record['other_dur_a'])
-                        #         ),
-                        #         np.floor_divide(
-                        #             np.multiply(
-                        #                 np.subtract(np.longlong(record['own_dur_b']*accurator), np.longlong(record['other_dur_b']*accurator)),
-                        #                 np.longlong(record['response_dur'])
-                        #             ),
-                        #             np.longlong(record['other_dur_b'])
-                        #         )
-                        #     )
-                        # )) * (1.0/accurator) * 0.5 * METER_PER_DWT_TS
-                    #print(record['estimated_tof'], record['calculated_tof'])
+
                     yield record
 
 
@@ -214,30 +164,50 @@ def extract_estimations(msg_iter):
                     yield record
 
 
-if __name__ == "__main__":
-    with open("data/trento_b/job_busy_wait.log") as f:
+from testbed.trento_b import name, dev_positions, parse_messages_from_lines, devs
 
+LOG_FILE = "job_with_ci"
 
-        d0 = devs[0]
-        d3 = devs[3]
-        d9 = devs[9]
+LOG_PATH= "data/{}/{}.log".format(name, LOG_FILE)
+EXPORT_PATH= "export/{}/{}".format(name, LOG_FILE)
 
-        meas_df = pandas.DataFrame.from_records(extract_measurements(parse_messages_from_lines(f)))
+import os
+os.makedirs(EXPORT_PATH, exist_ok = True)
+
+def export_measurements():
+
+    with open(LOG_PATH) as f:
+
+        src_dev = devs[1]
+
+        meas_df = pandas.DataFrame.from_records(extract_measurements(parse_messages_from_lines(f, src_dev=src_dev)))
 
         # we first plot the number of measurements for all pairs
+
+        meas_df = meas_df[(meas_df['device'] == src_dev)]
 
         for i in range(0, len(devs)):
             d0 = devs[i]
 
             for other in range(0, i):
-                df = meas_df[(meas_df['device'] == devs[0])]
-                df = df.sort_values(by='initiator')
-
-                df = df[['pair',  'initiator', 'responder', 'round', 'estimated_tof', 'calculated_tof', ]]
-
+                if i == other:
+                    continue
+                df = meas_df
                 df = df[(df['initiator'] == other) & ((df['responder'] == i))]
 
-                df = df[['round', 'estimated_tof', 'calculated_tof']]
+                ax = df.plot(kind='scatter', x='round', y='relative_drift_a', color='b', label='Init Rel. Drift',
+                             alpha=0.5, figsize=(20, 10))
+                ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_a_ci', color='c', label='Init Rel. Drift (CI)', alpha=0.5)
+                ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_b', color='r', label='Resp Rel. Drift', alpha=0.5)
+                ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_b_ci', color='y', label='Resp Rel. Drift (CI)', alpha=0.5)
+                print("Saving {}-{}".format(i, other))
+                plt.title("Rel. Drifts {}-{}".format(i, other))
+                plt.savefig("{}/measurements_rel_drifts_{}-{}.pdf".format(EXPORT_PATH, i, other))
+                plt.close()
+
+            for other in range(0, i):
+                df = meas_df
+                df = df[(df['initiator'] == other) & ((df['responder'] == i))]
 
                 ax = df.plot(kind='scatter', x='round', y='calculated_tof', color='b', label='Python (64 bit)', alpha=0.5, figsize=(20, 10), ylim=(0, 12))
                 ax = df.plot(ax=ax, kind='scatter', x='round', y='estimated_tof', color='r', label='C', alpha=0.5)
@@ -247,78 +217,85 @@ if __name__ == "__main__":
                 #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_single', color='b', label='C (32 bit)')
                 #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_int_10', color='b', label='Python (Integer)')
                 print("Saving {}-{}".format(i, other))
-                plt.title("{}-{}".format(i, other))
-                plt.savefig("export/{}-{}.pdf".format(i, other))
+                plt.title("Scatter {}-{}".format(i, other))
+                plt.savefig("{}/measurements_scatter_{}-{}.pdf".format(EXPORT_PATH, i, other))
+                plt.close()
                 #plt.show()
 
+if __name__ == "__main__":
 
-        #print(df)
+    export_measurements()
 
-        #df = df[['pair', 'measurement']]
-        #df = df.groupby(['pair']).agg('count')
-        #df.plot.bar( y=['measurement'])
-        #plt.show()
-
-
-
-        # first plot the mean measurements for all connections from the first device
-        # df = df_m[(df_m['device'] == d0) & (df_m['initiator'] <= 4) & (df_m['responder'] == 0) & (df_m['mean_measurement'].notna())]
-        # df = df[['mean_measurement', 'round', 'initiator']]
-        # df = df.pivot(index='round', columns= 'initiator', values='mean_measurement')
-        # df.plot()
-        # plt.show()
-
-
-
-        # we now iterate through the messages and set the address as well
-        est_df = pandas.DataFrame.from_records(extract_estimations(parse_messages_from_lines(f)))
-
-        round = est_df['round'].max()
-
-        df = est_df[(est_df['round'] == round) & (est_df['device'] == d0) & (est_df['mean_measurement'].notna())]
-
-        df['err_uncalibrated'] = df['est_distance_uncalibrated'] - df['dist']
-        df['err_factory'] = df['est_distance_factory'] - df['dist']
-        df['err_calibrated'] = df['est_distance_calibrated'] - df['dist']
-
-        df['abs_err_uncalibrated'] = df['err_uncalibrated'].apply(np.abs)
-        df['abs_err_factory'] = df['err_factory'].apply(np.abs)
-        df['abs_err_calibrated'] = df['err_calibrated'].apply(np.abs)
-
-        df = df.sort_values(by='err_uncalibrated')
-        #df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-        df.plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
-        plt.show()
-        #
-        # plt.clf()
-        # df[(est_df['initiator'] == 1)].plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
-        # plt.show()
-
-
-        df['squared_err_uncalibrated'] = df['err_uncalibrated'].apply(np.square)
-        df['squared_err_factory'] = df['err_factory'].apply(np.square)
-        df['squared_err_calibrated'] = df['err_calibrated'].apply(np.square)
-
-        #df = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']]
-        df = df[['initiator', 'responder', 'abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
-
-        df_init = df
-        df_resp = df
-
-        df_init = df_init.rename(columns={'initiator': 'id'})[['id', 'abs_err_uncalibrated']]
-        df_resp = df_resp.rename(columns={'responder': 'id'})[['id', 'abs_err_uncalibrated']]
-
-        df_both = pandas.concat([df_init, df_resp])
-
-        print(df_both)
-
-
-        res = df_both.groupby('id').aggregate(func=['median', 'mean', 'std', 'max'])
-        ax = res.plot.bar()
-        for container in ax.containers:
-            ax.bar_label(container)
-
-        plt.show()
-        #q_up = df.quantile(q=0.95)
-        #q_low = df.quantile(q=0.05)
-        #print(res, q_low, q_up)
+    #
+    #
+    #
+    # #print(df)
+    #
+    # #df = df[['pair', 'measurement']]
+    # #df = df.groupby(['pair']).agg('count')
+    # #df.plot.bar( y=['measurement'])
+    # #plt.show()
+    #
+    #
+    #
+    # # first plot the mean measurements for all connections from the first device
+    # # df = df_m[(df_m['device'] == d0) & (df_m['initiator'] <= 4) & (df_m['responder'] == 0) & (df_m['mean_measurement'].notna())]
+    # # df = df[['mean_measurement', 'round', 'initiator']]
+    # # df = df.pivot(index='round', columns= 'initiator', values='mean_measurement')
+    # # df.plot()
+    # # plt.show()
+    #
+    #
+    #
+    # # we now iterate through the messages and set the address as well
+    # est_df = pandas.DataFrame.from_records(extract_estimations(parse_messages_from_lines(f)))
+    #
+    # round = est_df['round'].max()
+    #
+    # df = est_df[(est_df['round'] == round) & (est_df['device'] == d0) & (est_df['mean_measurement'].notna())]
+    #
+    # df['err_uncalibrated'] = df['est_distance_uncalibrated'] - df['dist']
+    # df['err_factory'] = df['est_distance_factory'] - df['dist']
+    # df['err_calibrated'] = df['est_distance_calibrated'] - df['dist']
+    #
+    # df['abs_err_uncalibrated'] = df['err_uncalibrated'].apply(np.abs)
+    # df['abs_err_factory'] = df['err_factory'].apply(np.abs)
+    # df['abs_err_calibrated'] = df['err_calibrated'].apply(np.abs)
+    #
+    # df = df.sort_values(by='err_uncalibrated')
+    # #df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
+    # df.plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
+    # plt.show()
+    # #
+    # # plt.clf()
+    # # df[(est_df['initiator'] == 1)].plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
+    # # plt.show()
+    #
+    #
+    # df['squared_err_uncalibrated'] = df['err_uncalibrated'].apply(np.square)
+    # df['squared_err_factory'] = df['err_factory'].apply(np.square)
+    # df['squared_err_calibrated'] = df['err_calibrated'].apply(np.square)
+    #
+    # #df = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']]
+    # df = df[['initiator', 'responder', 'abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
+    #
+    # df_init = df
+    # df_resp = df
+    #
+    # df_init = df_init.rename(columns={'initiator': 'id'})[['id', 'abs_err_uncalibrated']]
+    # df_resp = df_resp.rename(columns={'responder': 'id'})[['id', 'abs_err_uncalibrated']]
+    #
+    # df_both = pandas.concat([df_init, df_resp])
+    #
+    # print(df_both)
+    #
+    #
+    # res = df_both.groupby('id').aggregate(func=['median', 'mean', 'std', 'max'])
+    # ax = res.plot.bar()
+    # for container in ax.containers:
+    #     ax.bar_label(container)
+    #
+    # plt.show()
+    # #q_up = df.quantile(q=0.95)
+    # #q_low = df.quantile(q=0.05)
+    # #print(res, q_low, q_up)
