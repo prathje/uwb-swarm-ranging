@@ -1,3 +1,9 @@
 /.idea
 /build
 .DS_Store
+/scripts/testbed/__pycache__/trento_b.cpython-38.pyc
+/scripts/testbed/__pycache__/trento_b.cpython-310.pyc
+/scripts/testbed/__pycache__/trento_a.cpython-310.pyc
+/scripts/testbed/__pycache__/lille.cpython-38.pyc
+/scripts/testbed/__pycache__/lille.cpython-310.pyc
+__pycache__
