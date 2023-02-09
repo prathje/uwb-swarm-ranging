@@ -5,7 +5,7 @@
 #include <logging/log.h>
 #include <stdio.h>
 
-#define NUM_NODES 14
+#define NUM_NODES 7
 
 
 

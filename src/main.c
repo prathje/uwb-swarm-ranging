@@ -19,7 +19,7 @@ LOG_MODULE_REGISTER(main);
 #define ROUND_TIMEOUT_MS 250
 #define POST_ROUND_DELAY_MS 50
 #define ESTIMATION_ROUND_DELAY_MS 5000
-#define IS_EST_ROUND(X) ((X)%100 == 0)
+#define IS_EST_ROUND(X) ((X)%1000 == 0)
 
 
 
@@ -408,6 +408,7 @@ int main(void) {
 
     LOG_INF("Start IEEE 802.15.4 device");
     ret = radio_api->start(ieee802154_dev);
+
     if(ret) {
         LOG_ERR("Could not start ieee 802.15.4 device");
         return false;

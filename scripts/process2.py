@@ -56,12 +56,13 @@ def extract_measurements(msg_iter):
     rounds, raw_measurements, drift_estimations = extract_types(msg_iter, ['raw_measurements', 'drift_estimation'])
 
     # put all messages into (d, round) sets
-    devices = dev_positions.keys()
+
+    print(raw_measurements.keys())
 
     for r in rounds:
-        for d in devices:
-            for (a, da) in enumerate(dev_positions):
-                for (b, db) in enumerate(dev_positions):
+        for d in devs:
+            for (a, da) in enumerate(devs):
+                for (b, db) in enumerate(devs):
                     if b <= a:
                         continue
                     pi = pair_index(a,b)
@@ -100,10 +101,11 @@ def extract_measurements(msg_iter):
 
                     if msg is not None:
 
-                        if msg['carrierintegrators'][a] != 0:
-                            record['relative_drift_a_ci'] = ci_to_rd(msg['carrierintegrators'][a])
-                        if msg['carrierintegrators'][b] != 0:
-                            record['relative_drift_b_ci'] = ci_to_rd(msg['carrierintegrators'][b])
+                        if 'carrierintegrators' in msg:
+                            if msg['carrierintegrators'][a] != 0:
+                                record['relative_drift_a_ci'] = ci_to_rd(msg['carrierintegrators'][a])
+                            if msg['carrierintegrators'][b] != 0:
+                                record['relative_drift_b_ci'] = ci_to_rd(msg['carrierintegrators'][b])
 
                         if msg['durations'][a] is not None:
                             record['own_dur_a'] = msg['durations'][a][0]
@@ -127,13 +129,11 @@ def extract_measurements(msg_iter):
 def extract_estimations(msg_iter):
     rounds, estimations = extract_types(msg_iter, ['estimation'])
 
-    devices = dev_positions.keys()
-
     records = []
     for r in rounds:
-        for d in devices:
-            for (a, da) in enumerate(dev_positions):
-                for (b, db) in enumerate(dev_positions):
+        for d in devs:
+            for (a, da) in enumerate(devs):
+                for (b, db) in enumerate(devs):
                     if b <= a:
                         continue
 
@@ -164,9 +164,9 @@ def extract_estimations(msg_iter):
                     yield record
 
 
-from testbed.trento_b import name, dev_positions, parse_messages_from_lines, devs
+from testbed.trento_a import name, dev_positions, parse_messages_from_lines, devs
 
-LOG_FILE = "job_with_ci"
+LOG_FILE = "job"
 
 LOG_PATH= "data/{}/{}.log".format(name, LOG_FILE)
 EXPORT_PATH= "export/{}/{}".format(name, LOG_FILE)
@@ -222,21 +222,84 @@ def export_measurements():
                 plt.close()
                 #plt.show()
 
+        # plot the amount of measurements
+        df = meas_df
+        df = df[['pair', 'estimated_tof']]
+        df = df.groupby(['pair']).agg('count')
+        df.plot.bar(y=['estimated_tof'])
+        plt.savefig("{}/measurements_count.pdf".format(EXPORT_PATH))
+        plt.close()
+
+def export_estimations():
+
+    with open(LOG_PATH) as f:
+
+        src_dev = devs[1]
+
+        est_df = pandas.DataFrame.from_records(extract_estimations(parse_messages_from_lines(f, src_dev=src_dev)))
+
+        round = est_df['round'].max()
+        est_df = est_df[(est_df['round'] == round) & (est_df['mean_measurement'].notna())]
+
+        est_df['err_uncalibrated'] = est_df['est_distance_uncalibrated'] - est_df['dist']
+        est_df['err_factory'] = est_df['est_distance_factory'] - est_df['dist']
+        est_df['err_calibrated'] = est_df['est_distance_calibrated'] - est_df['dist']
+
+        est_df['abs_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.abs)
+        est_df['abs_err_factory'] = est_df['err_factory'].apply(np.abs)
+        est_df['abs_err_calibrated'] = est_df['err_calibrated'].apply(np.abs)
+
+        est_df['squared_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.square)
+        est_df['squared_err_factory'] = est_df['err_factory'].apply(np.square)
+        est_df['squared_err_calibrated'] = est_df['err_calibrated'].apply(np.square)
+
+        df = est_df.sort_values(by='err_uncalibrated')
+        # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
+        df.plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
+        plt.savefig("{}/est_err_uncalibrated_sorted.pdf".format(EXPORT_PATH))
+        plt.close()
+
+
+
+        df = est_df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
+        res = df.aggregate(func=['median', 'mean', 'std'])
+        ax = res.plot.bar()
+        for container in ax.containers:
+            ax.bar_label(container)
+
+        plt.savefig("{}/est_aggr.pdf".format(EXPORT_PATH))
+        plt.close()
+
+        df = est_df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
+        ax = df.hist(alpha=0.33, bins=20)
+
+        plt.savefig("{}/est_aggr_hist.pdf".format(EXPORT_PATH))
+        plt.close()
+
+        df = est_df[['initiator', 'responder', 'abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
+
+        df_init = df
+        df_resp = df
+
+        df_init = df_init.rename(columns={'initiator': 'id'})[['id', 'abs_err_uncalibrated']]
+        df_resp = df_resp.rename(columns={'responder': 'id'})[['id', 'abs_err_uncalibrated']]
+
+        df_both = pandas.concat([df_init, df_resp])
+
+        res = df_both.groupby('id').aggregate(func=['median', 'mean', 'std', 'max'])
+        ax = res.plot.bar()
+        for container in ax.containers:
+            ax.bar_label(container)
+
+        plt.savefig("{}/est_pair_errors.pdf".format(EXPORT_PATH))
+        plt.close()
+
 if __name__ == "__main__":
 
+    export_estimations()
     export_measurements()
 
-    #
-    #
-    #
-    # #print(df)
-    #
-    # #df = df[['pair', 'measurement']]
-    # #df = df.groupby(['pair']).agg('count')
-    # #df.plot.bar( y=['measurement'])
-    # #plt.show()
-    #
-    #
+
     #
     # # first plot the mean measurements for all connections from the first device
     # # df = df_m[(df_m['device'] == d0) & (df_m['initiator'] <= 4) & (df_m['responder'] == 0) & (df_m['mean_measurement'].notna())]
@@ -246,56 +309,3 @@ if __name__ == "__main__":
     # # plt.show()
     #
     #
-    #
-    # # we now iterate through the messages and set the address as well
-    # est_df = pandas.DataFrame.from_records(extract_estimations(parse_messages_from_lines(f)))
-    #
-    # round = est_df['round'].max()
-    #
-    # df = est_df[(est_df['round'] == round) & (est_df['device'] == d0) & (est_df['mean_measurement'].notna())]
-    #
-    # df['err_uncalibrated'] = df['est_distance_uncalibrated'] - df['dist']
-    # df['err_factory'] = df['est_distance_factory'] - df['dist']
-    # df['err_calibrated'] = df['est_distance_calibrated'] - df['dist']
-    #
-    # df['abs_err_uncalibrated'] = df['err_uncalibrated'].apply(np.abs)
-    # df['abs_err_factory'] = df['err_factory'].apply(np.abs)
-    # df['abs_err_calibrated'] = df['err_calibrated'].apply(np.abs)
-    #
-    # df = df.sort_values(by='err_uncalibrated')
-    # #df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-    # df.plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
-    # plt.show()
-    # #
-    # # plt.clf()
-    # # df[(est_df['initiator'] == 1)].plot.bar(x='pair', y=['err_uncalibrated', 'err_factory', 'err_calibrated'])
-    # # plt.show()
-    #
-    #
-    # df['squared_err_uncalibrated'] = df['err_uncalibrated'].apply(np.square)
-    # df['squared_err_factory'] = df['err_factory'].apply(np.square)
-    # df['squared_err_calibrated'] = df['err_calibrated'].apply(np.square)
-    #
-    # #df = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']]
-    # df = df[['initiator', 'responder', 'abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
-    #
-    # df_init = df
-    # df_resp = df
-    #
-    # df_init = df_init.rename(columns={'initiator': 'id'})[['id', 'abs_err_uncalibrated']]
-    # df_resp = df_resp.rename(columns={'responder': 'id'})[['id', 'abs_err_uncalibrated']]
-    #
-    # df_both = pandas.concat([df_init, df_resp])
-    #
-    # print(df_both)
-    #
-    #
-    # res = df_both.groupby('id').aggregate(func=['median', 'mean', 'std', 'max'])
-    # ax = res.plot.bar()
-    # for container in ax.containers:
-    #     ax.bar_label(container)
-    #
-    # plt.show()
-    # #q_up = df.quantile(q=0.95)
-    # #q_low = df.quantile(q=0.05)
-    # #print(res, q_low, q_up)

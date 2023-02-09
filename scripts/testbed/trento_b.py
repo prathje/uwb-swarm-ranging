@@ -79,6 +79,8 @@ def parse_messages_from_lines(line_it, src_dev=None):
         dev_set = {src_dev}
 
     for line in line_it:
+
+
         if line.strip() == "":
             continue
         try:
@@ -88,6 +90,7 @@ def parse_messages_from_lines(line_it, src_dev=None):
             ts_str = line[1:24]
 
             dev = line[24:].split(':', 2)[1]
+            )
 
             if dev not in dev_set:
                 continue
@@ -100,7 +103,7 @@ def parse_messages_from_lines(line_it, src_dev=None):
                 msg['_log_ts'] = ts_str
                 yield (log_ts, dev, msg)
             except json.decoder.JSONDecodeError:
-                #print(json_str)
+                print(json_str)
                 pass
         except ValueError:
             pass
