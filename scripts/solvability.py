@@ -201,29 +201,39 @@ def get_dof(NUM_NODES, given_delays, given_distances, with_tdoa):
 
 NUM_NODES = 6
 
-import itertools
 
-all_dists = []
+distances = []
+for a in range(NUM_NODES-1):
+    distances.append((a,a+1))
 
-for a in range(NUM_NODES):
-    for b in range(NUM_NODES):
-        if a < b:
-            all_dists.append((a,b))
+distances.append((0, 4))  # we have one circle!
 
+dof = get_dof(NUM_NODES, [], distances, False)
+print(dof)
 
-stats = {}
-
-for cd in range(NUM_NODES+1):
-    for d in range(len(all_dists)+1):
-        stats[(cd,d)] = []
-        for delays in itertools.combinations(range(NUM_NODES), cd):
-            for distances in itertools.combinations(all_dists, d):
-                dof = get_dof(NUM_NODES, delays, distances, False)
-                dof_with_tdoa = dof #get_dof(NUM_NODES, delays, distances, True)
-
-                if dof != dof_with_tdoa:
-                    print("DIFFERENCE")
-                stats[(cd, d)].append(dof)
-
-        xs = np.array(stats[(cd, d)])
-        print((cd, d), np.mean(xs), np.min(xs), np.max(xs))
+# import itertools
+#
+# all_dists = []
+#
+# for a in range(NUM_NODES):
+#     for b in range(NUM_NODES):
+#         if a < b:
+#             all_dists.append((a,b))
+#
+#
+# stats = {}
+#
+# for cd in range(NUM_NODES+1):
+#     for d in range(len(all_dists)+1):
+#         stats[(cd,d)] = []
+#         for delays in itertools.combinations(range(NUM_NODES), cd):
+#             for distances in itertools.combinations(all_dists, d):
+#                 dof = get_dof(NUM_NODES, delays, distances, False)
+#                 dof_with_tdoa = dof #get_dof(NUM_NODES, delays, distances, True)
+#
+#                 if dof != dof_with_tdoa:
+#                     print("DIFFERENCE")
+#                 stats[(cd, d)].append(dof)
+#
+#         xs = np.array(stats[(cd, d)])
+#         print((cd, d), np.mean(xs), np.min(xs), np.max(xs))
