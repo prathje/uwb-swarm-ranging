@@ -90,7 +90,6 @@ def parse_messages_from_lines(line_it, src_dev=None):
             ts_str = line[1:24]
 
             dev = line[24:].split(':', 2)[1]
-            )
 
             if dev not in dev_set:
                 continue

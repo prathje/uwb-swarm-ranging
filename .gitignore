@@ -8,3 +8,4 @@
 /scripts/testbed/__pycache__/lille.cpython-310.pyc
 __pycache__
 /scripts/.DS_Store
+*.pyc

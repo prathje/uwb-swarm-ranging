@@ -5,12 +5,47 @@ import testbed.trento_a as trento_a
 import testbed.trento_b as trento_b
 
 import sys
+import numpy as np
 
 DEFAULT_DELAY = 16450
 
 TESTBEDS = [
     lille, trento_a, trento_b
 ]
+
+
+def create_inference_matrix(n):
+    X = np.zeros((int(n * (n - 1) / 2), n))
+
+    row = 0
+    for a in range(n):
+        for b in range(n):
+            if b < a:
+                X[row][a] = 1
+                X[row][b] = 1
+                row += 1
+
+    B = np.matmul(np.linalg.inv(np.matmul(np.transpose(X), X)), np.transpose(X))
+    return B
+
+def print_est_matrix(M):
+    print("{")
+    for r in range(M.shape[0]):
+        s = "{"
+
+        for c in range(M.shape[1]):
+            s += str(M[r][c])
+
+            if c < M.shape[1] - 1:
+                s += ", "
+        s += "}"
+        if r < M.shape[0] - 1:
+            s += ", "
+        print(s)
+    print("}")
+
+
+
 
 def print_testbed(t):
     n = len(t.dev_positions.keys())
@@ -41,6 +76,18 @@ def print_testbed(t):
             if b < a:
                 print("\t {}, // {} to {}".format(round(get_dist(t.dev_positions[da], t.dev_positions[db]), 4), da, db))
     print("};")
+
+    print('//TODO: we might want to enable the robust estimation all the time?')
+    print('#if 1')
+    print("float32_t estimation_mat_full[NUM_NODES][(NUM_PAIRS/2)] =")
+    print_est_matrix(create_inference_matrix(len(t.devs)))
+    print(";")
+    print('#else')
+    print("float32_t estimation_mat_robus[NUM_NODES-1][(NUM_NODES-1)*(NUM_NODES-2)/2)] =")
+    print_est_matrix(create_inference_matrix(len(t.devs)-1))
+    print(";")
+    print('#endif')
+
 
 
 

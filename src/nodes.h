@@ -15,6 +15,11 @@
 extern int16_t node_factory_antenna_delay_offsets[NUM_NODES];
 extern uint16_t node_ids[NUM_NODES];
 extern float32_t node_distances[NUM_PAIRS];
+#if 1
+extern float32_t estimation_mat_full[NUM_NODES][(NUM_PAIRS/2)];
+#else
+extern float32_t estimation_mat_robust[NUM_NODES-1][(NUM_NODES-1)*(NUM_NODES-2)/2)];
+#endif
 
 
 size_t pair_index(uint16_t a, uint16_t b);
