@@ -19,18 +19,16 @@ NODES_POSITIONS = [
 c_in_air = 299702547.236
 RESP_DELAY_S = 0.005
 
-
 NUM_TOTAL_EXCHANGES = 1024
 NUM_REPETITIONS = 100
 
-NODE_DRIFT_STD = 10.0/1000000.0 #TODO! enable again
-
+NODE_DRIFT_STD = 10.0/1000000.0
 
 TX_DELAY_MEAN = 0.516e-09
 TX_DELAY_STD = 0.06e-09
 RX_DELAY_MEAN = TX_DELAY_MEAN
 RX_DELAY_STD = TX_DELAY_STD
-RX_NOISE_STD = 1.0e-08
+RX_NOISE_STD = 1.0e-09
 
 # Enable perfect measurements but with drift!
 # TX_DELAY_MEAN = 0
@@ -213,22 +211,23 @@ def calibrate_delays_gn(rounds, num_iterations=100):
                     h_normed = h / np.linalg.norm(h)
 
                     #old_est_combined_delay = est_combined_delay
-                    est_combined_delay = est_combined_delay + np.matmul(h_normed, T) * (1.0/len(rounds)) # we adjust the learning rate
+                    est_combined_delay = est_combined_delay + np.matmul(h_normed, T) * 0.1 # we adjust the learning rate
                     #est_combined_delay_new = est_combined_delay - np.mean(T)
                     #print(len(exchanges), old_est_combined_delay, est_combined_delay)
                     #print(old_est_combined_delay, np.matmul(h_normed, T), est_combined_delay)
 
-                    if abs(est_combined_delay) > 1.0e-08:
-                        print(a,b,i)
-                        print(h)
-                        print(h_normed)
-                        print(T)
-                        print(T.dtype, h.dtype)
-                        print("matmul_normed", np.matmul(h_normed, T))
-                        print("matmul", np.matmul(h, T))
-                        print("mean", np.sum(T)*h_normed[0])
+                    if abs(est_combined_delay) > RX_NOISE_STD*10.0:
+                        print("GN might not converge!", est_combined_delay)
+                        # print(a,b,i)
+                        # print(h)
+                        # print(h_normed)
+                        # print(T)
+                        # print(T.dtype, h.dtype)
+                        # print("matmul_normed", np.matmul(h_normed, T))
+                        # print("matmul", np.matmul(h, T))
+                        # print("mean", np.sum(T)*h_normed[0])
+
                         #print(old_est_combined_delay, est_combined_delay, est_combined_delay_new)
-                        exit()
                 est_combined_delays.append(est_combined_delay)
     est_combined_delays = np.array(est_combined_delays)
 
@@ -329,8 +328,7 @@ def calibrate_delays_our_approach_via_source_device(rounds, source_device=0):
 
 # we get a list of dictionaries, containing the measurement pairs
 
-xs = [4]# 8, 16]#, 64, 256, 1024, 4096]     #,256,512,1024,2048]
-#xs = [1, 4, 8, 16, 64, 256, 1024, 4096]
+xs = [4, 16, 64, 256, 1024]
 ys_pso = []
 ys_gn = []
 ys_our = []
@@ -455,10 +453,23 @@ df = pd.DataFrame(data_rows)
 # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
 df = df.rename(columns={"gn_mean": "Gauss-Newton", "our_mean": "Proposed"})
 
-ax = df.plot.bar(x='num_measurements', y=['Gauss-Newton', 'Proposed'], yerr=[df['gn_std'], df['our_std'], df['speedup_err']])
+stds = [df['gn_std'], df['our_std'], df['speedup_err']]
+
+ax = df.plot.bar(x='num_measurements', y=['Gauss-Newton', 'Proposed'], yerr=stds)
+plt.ylim(0.0, 12.0)
 ax.set_axisbelow(True)
 ax.set_xlabel("Number of Measurement Rounds")
 ax.set_ylabel("Mean RMSE [cm]")
+
+
+for p in ax.patches:
+    height = p.get_height()
+    if np.isnan(height):
+        height = 0
+
+    ax.text(p.get_x() + p.get_width()/2., 0.0, '%.1f' % height, fontsize=10, color='black', ha='center', va='bottom')
+    #ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
+
 plt.grid(color='gray', linestyle='dashed')
 
 plt.tight_layout()
