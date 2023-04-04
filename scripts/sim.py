@@ -1,4 +1,8 @@
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from base import pair_index
 
 NODES_POSITIONS = [
     (0,0),
@@ -16,8 +20,29 @@ c_in_air = 299702547.236
 RESP_DELAY_S = 0.005
 
 
-NUM_TOTAL_EXCHANGES = 2048
-NUM_REPETITIONS = 1
+NUM_TOTAL_EXCHANGES = 1024
+NUM_REPETITIONS = 100
+
+NODE_DRIFT_STD = 10.0/1000000.0 #TODO! enable again
+
+
+TX_DELAY_MEAN = 0.516e-09
+TX_DELAY_STD = 0.06e-09
+RX_DELAY_MEAN = TX_DELAY_MEAN
+RX_DELAY_STD = TX_DELAY_STD
+RX_NOISE_STD = 1.0e-08
+
+# Enable perfect measurements but with drift!
+# TX_DELAY_MEAN = 0
+# TX_DELAY_STD = 0
+# RX_DELAY_MEAN = 0
+# RX_DELAY_STD = 0
+# RX_NOISE_STD = 0
+
+#NODE_DRIFT_STD = 10.0/10.0
+
+
+import time
 
 
 def dist(a, b):
@@ -44,14 +69,30 @@ def create_inference_matrix(n):
 INF_MAT = create_inference_matrix(len(NODES_POSITIONS))
 
 
+def create_inference_matrix_rep(n, rep=1):
+    X = np.zeros((int(n * (n - 1) / 2)*rep, n))
+
+    row = 0
+    for a in range(n):
+        for b in range(n):
+            if b < a:
+                for i in range(rep):
+                    X[row][a] = 1
+                    X[row][b] = 1
+                    row += 1
+
+    B = np.matmul(np.linalg.inv(np.matmul(np.transpose(X), X)), np.transpose(X))
+    return B
+
+
 
 def sim_exchange():
     n = len(NODES_POSITIONS)
     # we fix the node drifts
-    node_drifts = np.random.normal(loc=1.0,  scale=10.0/1000000.0, size=n)
+    node_drifts = np.random.normal(loc=1.0,  scale=NODE_DRIFT_STD, size=n)
 
-    tx_delays = np.random.normal(loc=0.516e-09,  scale=0.06e-09, size=n)
-    rx_delays = np.random.normal(loc=0.516e-09,  scale=0.06e-09, size=n)
+    tx_delays = np.random.normal(loc=TX_DELAY_MEAN,  scale=TX_DELAY_STD, size=n)
+    rx_delays = np.random.normal(loc=RX_DELAY_MEAN,  scale=RX_DELAY_STD, size=n)
 
     rounds = []
     for i in range(NUM_TOTAL_EXCHANGES):
@@ -64,13 +105,13 @@ def sim_exchange():
                     t = tof(a, b)
 
                     a_actual_poll_tx = 0
-                    b_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=t, scale=1.0e-09)
+                    b_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=t, scale=RX_NOISE_STD)
                     b_actual_response_tx = b_actual_poll_rx + RESP_DELAY_S
-                    a_actual_response_rx = b_actual_response_tx + np.random.normal(loc=t, scale=1.0e-09)
+                    a_actual_response_rx = b_actual_response_tx + np.random.normal(loc=t, scale=RX_NOISE_STD)
                     a_actual_final_tx = a_actual_response_rx + RESP_DELAY_S
-                    b_actual_final_rx = a_actual_final_tx + np.random.normal(loc=t, scale=1.0e-09)
+                    b_actual_final_rx = a_actual_final_tx + np.random.normal(loc=t, scale=RX_NOISE_STD)
 
-                    # tx timestamps are skewed in a negative way
+                    # tx timestamps are skewed in a negative way -> i.e. increase the measured_rtt
                     a_delayed_poll_tx = a_actual_poll_tx - tx_delays[a]
                     b_delayed_response_tx = b_actual_response_tx - tx_delays[b]
                     a_delayed_final_tx = a_actual_final_tx - tx_delays[a]
@@ -91,6 +132,7 @@ def sim_exchange():
                         "round_b": b_measured_round_undrifted * node_drifts[b],
                         "delay_b": b_measured_delay_undrifted * node_drifts[b],
                     })
+
         rounds.append(round)
     return (node_drifts, tx_delays, rx_delays, rounds)
 
@@ -101,13 +143,21 @@ def calc_simple(ex, comb_delay=0.0):
     return (round_a-delay_b*relative_drift-comb_delay) * 0.5
 
 
+
+
+
+
+#def calc_simple_2(ex, comb_delay=0.0):
+#    (round_a, delay_a, round_b, delay_b) = (ex['round_a'], ex['delay_a'], ex['round_b'], ex['delay_b'])
+#    #return ((round_b + delay_b)*round_a - delay_b * (round_a + delay_a) - (round_b + delay_b)*comb_delay) / (2.0*(round_b + delay_b))
+#    return ((round_b * round_a - delay_b * delay_a) - (round_b + delay_b)*comb_delay) / (2.0*(round_b + delay_b))
+
+
 def calc_complex_tof(ex, comb_delay=0.0):
     (round_a, delay_a, round_b, delay_b) = (ex['round_a'], ex['delay_a'], ex['round_b'], ex['delay_b'])
     (a, x, b, y) = (ex['round_a'], ex['delay_a'], ex['round_b'], ex['delay_b'])
 
-    c = comb_delay
-
-    print ((a*b-x*y-(x+y)*c-c*c) / (x+y+a+b+2*c)-(round_a*round_b-delay_a*delay_b-(delay_a+delay_b)*comb_delay-comb_delay*comb_delay) / (delay_a+delay_b+round_a+round_b+2*comb_delay))
+    #print ((a*b-x*y-(x+y)*c-c*c) / (x+y+a+b+2*c)-(round_a*round_b-delay_a*delay_b-(delay_a+delay_b)*comb_delay-comb_delay*comb_delay) / (delay_a+delay_b+round_a+round_b+2*comb_delay))
     return (round_a*round_b-delay_a*delay_b-(delay_a+delay_b)*comb_delay-comb_delay*comb_delay) / (delay_a+delay_b+round_a+round_b+2*comb_delay)
 
 def calc_complex_tof_d_comb(ex, comb_delay=0.0):
@@ -120,14 +170,76 @@ def calc_complex_tof_d_comb(ex, comb_delay=0.0):
 def calibrate_delays_pso(rounds):
     return np.array([0]*len(NODES_POSITIONS))   # list of antenna delays
 
-def calibrate_delays_gn(rounds):
-    return np.array([0]*len(NODES_POSITIONS))   # list of antenna delays
+
+
+def calibrate_delays_gn(rounds, num_iterations=100):
+    actual = []
+
+    for a in range(len(NODES_POSITIONS)):
+        for b in range(len(NODES_POSITIONS)):
+            if b < a:
+                actual.append(tof(a, b))
+    actual = np.array(actual)
+
+    est_combined_delays = []
+
+    for a in range(len(NODES_POSITIONS)):
+        for b in range(len(NODES_POSITIONS)):
+            if b < a:
+                pi = pair_index(a,b)
+                est_combined_delay = RX_DELAY_MEAN+TX_DELAY_MEAN
+                exchanges = []
+                for r in rounds:
+                    exchanges.append(r[pi])
+
+                def compute_h(delay):
+                    xs = []
+                    for e in exchanges:
+                        xs.append(calc_complex_tof_d_comb(e, delay))
+                    return np.array(xs).transpose()
+
+                def compute_T(delay):
+                    xs = []
+                    for e in exchanges:
+                        xs.append(calc_complex_tof(e, delay))
+                    return actual[pi] - np.array(xs)
+
+
+                for i in range(num_iterations):
+                    h = compute_h(est_combined_delay)
+                    T = compute_T(est_combined_delay)
+
+                    # we normalize h
+                    h_normed = h / np.linalg.norm(h)
+
+                    #old_est_combined_delay = est_combined_delay
+                    est_combined_delay = est_combined_delay + np.matmul(h_normed, T) * (1.0/len(rounds)) # we adjust the learning rate
+                    #est_combined_delay_new = est_combined_delay - np.mean(T)
+                    #print(len(exchanges), old_est_combined_delay, est_combined_delay)
+                    #print(old_est_combined_delay, np.matmul(h_normed, T), est_combined_delay)
+
+                    if abs(est_combined_delay) > 1.0e-08:
+                        print(a,b,i)
+                        print(h)
+                        print(h_normed)
+                        print(T)
+                        print(T.dtype, h.dtype)
+                        print("matmul_normed", np.matmul(h_normed, T))
+                        print("matmul", np.matmul(h, T))
+                        print("mean", np.sum(T)*h_normed[0])
+                        #print(old_est_combined_delay, est_combined_delay, est_combined_delay_new)
+                        exit()
+                est_combined_delays.append(est_combined_delay)
+    est_combined_delays = np.array(est_combined_delays)
+
+    delays = np.matmul(INF_MAT, np.transpose(est_combined_delays))
+
+    return np.transpose(delays)
 
 
 
 
-
-def calibrate_delays_our_approach(rounds):
+def calibrate_delays_our_approach(rounds, device_drifts, source_device=0):
 
     sums = []
     actual = []
@@ -138,14 +250,18 @@ def calibrate_delays_our_approach(rounds):
                 sums.append(0)
                 actual.append(tof(a,b))
 
-    for r in rounds:
-        i = 0
-        for a in range(len(NODES_POSITIONS)):
-            for b in range(len(NODES_POSITIONS)):
-                if b < a:
-                    ex = r[i]
-                    sums[i] += calc_simple(ex)
-                    i += 1
+    individual_measurements = []
+
+    for a in range(len(NODES_POSITIONS)):
+        for b in range(len(NODES_POSITIONS)):
+            if b < a:
+                pi = pair_index(a,b)
+                for r in rounds:
+                    ex = r[pi]
+                    tof_calc_in_time_a = calc_simple(ex)
+                    tof_calc_in_source_time = device_drifts[source_device] * tof_calc_in_time_a / device_drifts[a]
+                    sums[pi] += tof_calc_in_source_time
+                    individual_measurements.append(tof_calc_in_source_time)
 
     sums = np.array(sums)
     actual = np.array(actual)
@@ -159,22 +275,117 @@ def calibrate_delays_our_approach(rounds):
 
     return np.transpose(delays)  # list of antenna delays
 
+
+def calibrate_delays_our_approach_via_source_device(rounds, source_device=0):
+    sums = []
+    actual = []
+    assert (source_device==0)
+    for a in range(len(NODES_POSITIONS)):
+        for b in range(len(NODES_POSITIONS)):
+            if b < a:
+                sums.append(0)
+                actual.append(tof(a, b))
+
+    individual_diffs = []
+    for a in range(len(NODES_POSITIONS)):
+        for b in range(len(NODES_POSITIONS)):
+            if b < a:
+                pi = pair_index(a, b)
+                for r in rounds:
+                    ex_a_b = r[pi]
+
+                    # we calculate the simple one from a to b
+                    t = calc_simple(ex_a_b, comb_delay=0.0)
+
+                    if source_device != a:
+                        ex_s_a = r[pair_index(source_device, a)]
+                        # then we convert it to the source time
+                        # TODO: we only support source device 0 for now (because of the ranging sides...)
+                        (round_s, delay_s, round_a, delay_a) = (ex_s_a['round_a'], ex_s_a['delay_a'], ex_s_a['round_b'], ex_s_a['delay_b'])
+                        t = (t * (round_s + delay_s)) / (round_a + delay_a)
+
+                    sums[pi] += t
+                    #individual_diffs.append((t-tof(a, b))*2.0)
+
+    sums = np.array(sums)
+    actual = np.array(actual)
+
+    sums /= len(rounds)
+
+    diffs = sums - actual
+    diffs *= 2.0
+
+    delays = np.matmul(INF_MAT, np.transpose(diffs))
+
+    # print("TEST", len(rounds))
+    # print(delays)
+    #
+    # individual_diffs = np.array(individual_diffs)
+    # delays = np.matmul(create_inference_matrix_rep(len(NODES_POSITIONS), len(rounds)),
+    #                    np.transpose(individual_diffs))
+    # print(delays)
+
+    return np.transpose(delays)  # list of antenna delays
+
 # we get a list of dictionaries, containing the measurement pairs
 
-xs = [4, 8,16,32,64,128,256,512,1024,2048]
+xs = [4]# 8, 16]#, 64, 256, 1024, 4096]     #,256,512,1024,2048]
+#xs = [1, 4, 8, 16, 64, 256, 1024, 4096]
 ys_pso = []
 ys_gn = []
 ys_our = []
 
 repetitions = []
 for i in range(NUM_REPETITIONS):
-    repetitions.append(sim_exchange())
+    exchanges = sim_exchange()
+    repetitions.append(exchanges)
 
+    # (node_drifts, tx_delays, rx_delays, rounds) = exchanges
+    #
+    # compl_errors = []
+    # simple_errors = []
+    # for r in rounds:
+    #     i = 0
+    #     for a in range(len(NODES_POSITIONS)):
+    #         for b in range(len(NODES_POSITIONS)):
+    #             if b < a:
+    #                 actual_dist = tof(a,b)
+    #                 compl = calc_complex_tof(r[i])
+    #                 simple = calc_simple(r[i])
+    #                 compl_errors.append(compl-actual_dist)
+    #                 simple_errors.append(simple-actual_dist)
+    #                 i += 1
+    #
+    # compl_errors = np.array(compl_errors)
+    # simple_errors = np.array(simple_errors)
+    #
+    # compl_error_rmse = np.sqrt(((compl_errors) ** 2).mean())
+    # simple_error_rmse = np.sqrt(((simple_errors) ** 2).mean())
+    # print(compl_errors.mean(), simple_errors.mean())
+    # print(compl_error_rmse, simple_error_rmse)
+    # exit()
+
+data_rows = []
+
+
+def convert_delays(delays):
+    return delays
+    # we convert the delays to the actual tof influence on the ranging from 1 to 0 (influence is halved for the actual ToF)
+    #return np.array([delays[0] + delays[1]])*0.5
+
+    # paired = []
+    # for a in range(len(NODES_POSITIONS)):
+    #     for b in range(len(NODES_POSITIONS)):
+    #         if b < a:
+    #             paired.append(delays[a]+delays[b])
+    # return np.array(paired)
 
 for x in xs:
 
     rmses_pso = []
     rmses_gn = []
+    gn_times = []
+    our_times = []
     rmses_our = []
 
     for i in range(NUM_REPETITIONS):
@@ -184,42 +395,96 @@ for x in xs:
         rounds = rounds[0:x]
 
         actual_delays = tx_delays + rx_delays
+        actual_delays = convert_delays(actual_delays)
 
-        pso_est_delays = calibrate_delays_pso(rounds=rounds)
+        #pso_est_delays = calibrate_delays_pso(rounds=rounds)
+
+        ts = time.time()
         gn_est_delays = calibrate_delays_gn(rounds=rounds)
-        our_est_delays = calibrate_delays_our_approach(rounds=rounds)
+        te = time.time()
+        gn_times.append(te-ts)
+        gn_est_delays = convert_delays(gn_est_delays)
 
-        pso_err = np.sqrt(((pso_est_delays-actual_delays)** 2).mean())
+        ts = time.time()
+        source_device = 0
+        #our_est_delays = calibrate_delays_our_approach(rounds=rounds, device_drifts=node_drifts, source_device=source_device)
+        #our_est_delays /= node_drifts[source_device]
+        our_est_delays = calibrate_delays_our_approach_via_source_device(rounds=rounds, source_device = 0)
+        te = time.time()
+        our_times.append(te - ts)
+        our_est_delays = convert_delays(our_est_delays)
+
+        #pso_err = np.sqrt(((pso_est_delays-actual_delays)** 2).mean())
         gn_err = np.sqrt(((gn_est_delays-actual_delays)** 2).mean())
         our_err = np.sqrt(((our_est_delays-actual_delays)** 2).mean())
 
-        rmses_pso.append(pso_err)
+        #rmses_pso.append(pso_err)
         rmses_gn.append(gn_err)
         rmses_our.append(our_err)
 
-    rmses_pso = np.array(rmses_pso)
+    #rmses_pso = np.array(rmses_pso)
     rmses_gn = np.array(rmses_gn)
     rmses_our = np.array(rmses_our)
 
+    gn_times = np.array(gn_times)
+    our_times = np.array(our_times)
 
 
-    print(x, rmses_our.mean()* c_in_air*100)
-    #print(rmses_pso)
-    #print(rmses_gn)
+    data_rows.append({
+        'num_measurements': x,
+        'gn_mean': rmses_gn.mean()* c_in_air*100,
+        'gn_std': rmses_gn.std()* c_in_air*100,
+        'our_mean': rmses_our.mean() * c_in_air * 100,
+        'our_std': rmses_our.std() * c_in_air * 100,
+        'gn_time_mean': gn_times.mean(),
+        'our_time_mean': our_times.mean(),
+        'speedup': gn_times.mean() / our_times.mean(),
+        'speedup_err': 0,
+    })
 
 
+print(data_rows)
 
-    #print(exchanges)
 
-    first = rounds[0][0]
+import os
+EXPORT_PATH= "export/sim"
+os.makedirs(EXPORT_PATH, exist_ok = True)
 
-    actual = dist(1, 0)
-    simple = calc_simple(first)*c_in_air
-    com = calc_complex_tof(first)*c_in_air
+df = pd.DataFrame(data_rows)
 
-    print(actual, simple, com)
+# df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
+df = df.rename(columns={"gn_mean": "Gauss-Newton", "our_mean": "Proposed"})
 
-    actual = dist(1, 0)
-    simple = calc_simple(first,comb_delay=rx_delays[0]+rx_delays[1]+tx_delays[0]+tx_delays[1]) * c_in_air
-    com = calc_complex_tof(first, comb_delay=rx_delays[0]+rx_delays[1]+tx_delays[0]+tx_delays[1]) * c_in_air
-    print(actual, simple, com)
+ax = df.plot.bar(x='num_measurements', y=['Gauss-Newton', 'Proposed'], yerr=[df['gn_std'], df['our_std'], df['speedup_err']])
+ax.set_axisbelow(True)
+ax.set_xlabel("Number of Measurement Rounds")
+ax.set_ylabel("Mean RMSE [cm]")
+plt.grid(color='gray', linestyle='dashed')
+
+plt.tight_layout()
+
+plt.savefig("{}/rmse.pdf".format(EXPORT_PATH))
+plt.show()
+
+plt.close()
+
+# print(x, rmses_gn.mean() * c_in_air*100, rmses_our.mean()* c_in_air*100, rmses_gn.std() * c_in_air*100, rmses_our.std() * c_in_air*100)
+# #print(rmses_pso)
+# #print(rmses_gn)
+#
+#
+#
+# #print(exchanges)
+#
+# first = rounds[0][0]
+#
+# actual = dist(1, 0)
+# simple = calc_simple(first)*c_in_air
+# com = calc_complex_tof(first)*c_in_air
+#
+# #print(actual, simple, com)
+#
+# actual = dist(1, 0)
+# simple = calc_simple(first, comb_delay=rx_delays[0]+rx_delays[1]+tx_delays[0]+tx_delays[1]) * c_in_air
+# com = calc_complex_tof(first, comb_delay=rx_delays[0]+rx_delays[1]+tx_delays[0]+tx_delays[1]) * c_in_air
+# #print(actual, simple, com)
