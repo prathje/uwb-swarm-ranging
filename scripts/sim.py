@@ -15,6 +15,8 @@ NODES_POSITIONS = [
     (0,7.5)
 ]
 
+PASSIVE_NODE_POSITION=(5,5)
+
 # Speed of light in air, NOT USED ATM
 c_in_air = 299702547.236
 RESP_DELAY_S = 0.005
@@ -32,12 +34,11 @@ RX_NOISE_STD = 1.0e-09
 
 # Enable perfect measurements but with drift!
 # TX_DELAY_MEAN = 0
-# TX_DELAY_STD = 0
+# TX_DELAY_STD = 0.01e-09
 # RX_DELAY_MEAN = 0
-# RX_DELAY_STD = 0
+# RX_DELAY_STD = 0.01e-09
 # RX_NOISE_STD = 0
-
-#NODE_DRIFT_STD = 10.0/10.0
+# NODE_DRIFT_STD = 0.0
 
 
 import time
@@ -48,6 +49,10 @@ def dist(a, b):
 
 def tof(a, b):
     return dist(a, b) / c_in_air
+
+
+def tof_to_passive(a):
+    return np.linalg.norm(np.array(NODES_POSITIONS[a]) - np.array(PASSIVE_NODE_POSITION)) / c_in_air
 
 
 def create_inference_matrix(n):
@@ -88,6 +93,7 @@ def sim_exchange():
     n = len(NODES_POSITIONS)
     # we fix the node drifts
     node_drifts = np.random.normal(loc=1.0,  scale=NODE_DRIFT_STD, size=n)
+    passive_node_drift = np.random.normal(loc=1.0,  scale=NODE_DRIFT_STD, size=1)
 
     tx_delays = np.random.normal(loc=TX_DELAY_MEAN,  scale=TX_DELAY_STD, size=n)
     rx_delays = np.random.normal(loc=RX_DELAY_MEAN,  scale=RX_DELAY_STD, size=n)
@@ -124,11 +130,23 @@ def sim_exchange():
                     a_measured_delay_undrifted = a_delayed_final_tx - a_delayed_response_rx
                     b_measured_delay_undrifted = b_delayed_response_tx - b_delayed_poll_rx
 
+                    # we compute times for TDoA using an additional passive node, note that we do not need delays here
+                    p_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=tof_to_passive(a), scale=RX_NOISE_STD)
+                    p_actual_response_rx = b_actual_response_tx + np.random.normal(loc=tof_to_passive(b), scale=RX_NOISE_STD)
+                    p_actual_final_rx = a_actual_final_tx + np.random.normal(loc=tof_to_passive(a), scale=RX_NOISE_STD)
+
                     round.append({
+                        "device_a": a,
+                        "device_b": b,
+                        "drift_a":  node_drifts[a],
+                        "drift_b":  node_drifts[b],
+                        "drift_p":  passive_node_drift,
                         "round_a": a_measured_round_undrifted * node_drifts[a],
                         "delay_a": a_measured_delay_undrifted * node_drifts[a],
                         "round_b": b_measured_round_undrifted * node_drifts[b],
                         "delay_b": b_measured_delay_undrifted * node_drifts[b],
+                        "passive_tdoa": (p_actual_response_rx-p_actual_poll_rx) * passive_node_drift,
+                        "passive_overall": (p_actual_final_rx-p_actual_poll_rx) * passive_node_drift,
                     })
 
         rounds.append(round)
@@ -163,10 +181,6 @@ def calc_complex_tof_d_comb(ex, comb_delay=0.0):
     c = comb_delay
     #d/dc((a b - x y - (x + y) c - c c)/(x + y + a + b + 2 c)) =
     return (-(2*c + x + y)*(a + b + 2*c + x + y) - 2*a*b + 2*pow(c,2) + 2*c*(x + y) + 2*x*y) / pow(a + b + 2*c + x + y, 2)
-
-
-def calibrate_delays_pso(rounds):
-    return np.array([0]*len(NODES_POSITIONS))   # list of antenna delays
 
 
 
@@ -326,10 +340,52 @@ def calibrate_delays_our_approach_via_source_device(rounds, source_device=0):
 
     return np.transpose(delays)  # list of antenna delays
 
+
+
+def calibrate_delays_tdoa(rounds):
+    # we use the last device since it initiates all rangings
+    # we will calculate the master node independently
+    m = len(NODES_POSITIONS) - 1
+
+
+    delays = []
+
+    # Calibrate devices independently
+    for a in range(len(NODES_POSITIONS)-1):
+        pi = pair_index(m, a)
+
+        delays_a = []
+        delays_m = []
+
+        for r in rounds:
+            ex_m_a = r[pi]
+
+            assert ex_m_a['device_a'] == m
+            assert ex_m_a['device_b'] == a
+
+            (round_m, delay_m, round_a, delay_a) = (ex_m_a['round_a'], ex_m_a['delay_a'], ex_m_a['round_b'], ex_m_a['delay_b'])
+            (passive_tdoa, passive_overall) = (ex_m_a['passive_tdoa'], ex_m_a['passive_overall'])
+
+
+            #tof(m, a), tof_to_passive(m), tof_to_passive(a)
+
+            est_delay_m = round_m - (passive_tdoa * ((round_m+delay_m)/passive_overall)) + tof_to_passive(a) - tof(m, a) - tof_to_passive(m)
+            est_delay_a = (passive_tdoa * (round_m+delay_m)/passive_overall) - delay_a * ((round_m+delay_m)/(round_a+delay_a)) - tof_to_passive(a) - tof(m, a) + tof_to_passive(m)
+
+            delays_a.append(est_delay_a)
+            delays_m.append(est_delay_m)
+
+        delays.append(np.mean(delays_a))
+
+        # we add the master delay in the end
+        if a == m - 1:
+            delays.append(np.mean(delays_m))
+    return np.transpose(delays)  # list of antenna delays
+
 # we get a list of dictionaries, containing the measurement pairs
 
 xs = [4, 16, 64, 256, 1024]
-ys_pso = []
+ys_tdoa = []
 ys_gn = []
 ys_our = []
 
@@ -366,25 +422,15 @@ for i in range(NUM_REPETITIONS):
 data_rows = []
 
 
-def convert_delays(delays):
-    return delays
-    # we convert the delays to the actual tof influence on the ranging from 1 to 0 (influence is halved for the actual ToF)
-    #return np.array([delays[0] + delays[1]])*0.5
-
-    # paired = []
-    # for a in range(len(NODES_POSITIONS)):
-    #     for b in range(len(NODES_POSITIONS)):
-    #         if b < a:
-    #             paired.append(delays[a]+delays[b])
-    # return np.array(paired)
 
 for x in xs:
 
-    rmses_pso = []
+    rmses_tdoa = []
     rmses_gn = []
+    rmses_our = []
+    tdoa_times = []
     gn_times = []
     our_times = []
-    rmses_our = []
 
     for i in range(NUM_REPETITIONS):
 
@@ -393,34 +439,32 @@ for x in xs:
         rounds = rounds[0:x]
 
         actual_delays = tx_delays + rx_delays
-        actual_delays = convert_delays(actual_delays)
-
-        #pso_est_delays = calibrate_delays_pso(rounds=rounds)
 
         ts = time.time()
         gn_est_delays = calibrate_delays_gn(rounds=rounds)
         te = time.time()
         gn_times.append(te-ts)
-        gn_est_delays = convert_delays(gn_est_delays)
+
+        ts = time.time()
+        tdoa_est_delays = calibrate_delays_tdoa(rounds=rounds)
+        te = time.time()
+        tdoa_times.append(te - ts)
 
         ts = time.time()
         source_device = 0
-        #our_est_delays = calibrate_delays_our_approach(rounds=rounds, device_drifts=node_drifts, source_device=source_device)
-        #our_est_delays /= node_drifts[source_device]
         our_est_delays = calibrate_delays_our_approach_via_source_device(rounds=rounds, source_device = 0)
         te = time.time()
         our_times.append(te - ts)
-        our_est_delays = convert_delays(our_est_delays)
 
-        #pso_err = np.sqrt(((pso_est_delays-actual_delays)** 2).mean())
+        tdoa_err = np.sqrt(((tdoa_est_delays-actual_delays)** 2).mean())
         gn_err = np.sqrt(((gn_est_delays-actual_delays)** 2).mean())
         our_err = np.sqrt(((our_est_delays-actual_delays)** 2).mean())
 
-        #rmses_pso.append(pso_err)
+        rmses_tdoa.append(tdoa_err)
         rmses_gn.append(gn_err)
         rmses_our.append(our_err)
 
-    #rmses_pso = np.array(rmses_pso)
+    rmses_tdoa = np.array(rmses_tdoa)
     rmses_gn = np.array(rmses_gn)
     rmses_our = np.array(rmses_our)
 
@@ -430,6 +474,8 @@ for x in xs:
 
     data_rows.append({
         'num_measurements': x,
+        'tdoa_mean': rmses_tdoa.mean() * c_in_air * 100,
+        'tdoa_std': rmses_tdoa.std() * c_in_air * 100,
         'gn_mean': rmses_gn.mean()* c_in_air*100,
         'gn_std': rmses_gn.std()* c_in_air*100,
         'our_mean': rmses_our.mean() * c_in_air * 100,
@@ -451,11 +497,11 @@ os.makedirs(EXPORT_PATH, exist_ok = True)
 df = pd.DataFrame(data_rows)
 
 # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-df = df.rename(columns={"gn_mean": "Gauss-Newton", "our_mean": "Proposed"})
+df = df.rename(columns={"gn_mean": "Gauss-Newton", "tdoa_mean": "TDoA", "our_mean": "Proposed"})
 
-stds = [df['gn_std'], df['our_std'], df['speedup_err']]
+stds = [df['tdoa_std'], df['gn_std'], df['our_std'], df['speedup_err']]
 
-ax = df.plot.bar(x='num_measurements', y=['Gauss-Newton', 'Proposed'], yerr=stds)
+ax = df.plot.bar(x='num_measurements', y=['TDoA', 'Gauss-Newton', 'Proposed'], yerr=stds)
 plt.ylim(0.0, 12.0)
 ax.set_axisbelow(True)
 ax.set_xlabel("Number of Measurement Rounds")
@@ -480,7 +526,7 @@ plt.show()
 plt.close()
 
 # print(x, rmses_gn.mean() * c_in_air*100, rmses_our.mean()* c_in_air*100, rmses_gn.std() * c_in_air*100, rmses_our.std() * c_in_air*100)
-# #print(rmses_pso)
+# #print(rmses_tdoa)
 # #print(rmses_gn)
 #
 #
