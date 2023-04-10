@@ -17,12 +17,9 @@ NODES_POSITIONS = [
 
 PASSIVE_NODE_POSITION=(5,5)
 
-# Speed of light in air, NOT USED ATM
+# Speed of light in air
 c_in_air = 299702547.236
 RESP_DELAY_S = 0.005
-
-NUM_TOTAL_EXCHANGES = 1024
-NUM_REPETITIONS = 100
 
 NODE_DRIFT_STD = 10.0/1000000.0
 
@@ -89,7 +86,7 @@ def create_inference_matrix_rep(n, rep=1):
 
 
 
-def sim_exchange():
+def sim_exchange(num_total_exchanges):
     n = len(NODES_POSITIONS)
     # we fix the node drifts
     node_drifts = np.random.normal(loc=1.0,  scale=NODE_DRIFT_STD, size=n)
@@ -99,7 +96,7 @@ def sim_exchange():
     rx_delays = np.random.normal(loc=RX_DELAY_MEAN,  scale=RX_DELAY_STD, size=n)
 
     rounds = []
-    for i in range(NUM_TOTAL_EXCHANGES):
+    for i in range(num_total_exchanges):
         round = []
 
         for a in range(len(NODES_POSITIONS)):
@@ -384,15 +381,10 @@ def calibrate_delays_tdoa(rounds):
 
 # we get a list of dictionaries, containing the measurement pairs
 
-xs = [4, 16, 64, 256, 1024]
-ys_tdoa = []
-ys_gn = []
-ys_our = []
+xs = [16, 64, 256, 1024]
 
-repetitions = []
-for i in range(NUM_REPETITIONS):
-    exchanges = sim_exchange()
-    repetitions.append(exchanges)
+
+
 
     # (node_drifts, tx_delays, rx_delays, rounds) = exchanges
     #
@@ -419,111 +411,79 @@ for i in range(NUM_REPETITIONS):
     # print(compl_error_rmse, simple_error_rmse)
     # exit()
 
-data_rows = []
+
+def get_sim_data_rows(xs=[16, 64, 256, 1024], num_repetitiosn=1):
+
+    max_exchanges = max(xs)
+    repetitions = []
+    for i in range(num_repetitiosn):
+        exchanges = sim_exchange(num_total_exchanges=max_exchanges)
+        repetitions.append(exchanges)
+
+    data_rows = []
+
+    for x in xs:
+
+        rmses_tdoa = []
+        rmses_gn = []
+        rmses_our = []
+        tdoa_times = []
+        gn_times = []
+        our_times = []
+
+        for i in range(num_repetitiosn):
+
+            (node_drifts, tx_delays, rx_delays, rounds) = repetitions[i]
+
+            rounds = rounds[0:x]
+
+            actual_delays = tx_delays + rx_delays
+
+            ts = time.time()
+            gn_est_delays = calibrate_delays_gn(rounds=rounds)
+            te = time.time()
+            gn_times.append(te-ts)
+
+            ts = time.time()
+            tdoa_est_delays = calibrate_delays_tdoa(rounds=rounds)
+            te = time.time()
+            tdoa_times.append(te - ts)
+
+            ts = time.time()
+            our_est_delays = calibrate_delays_our_approach_via_source_device(rounds=rounds, source_device = 0)
+            te = time.time()
+            our_times.append(te - ts)
+
+            tdoa_err = np.sqrt(((tdoa_est_delays-actual_delays)** 2).mean())
+            gn_err = np.sqrt(((gn_est_delays-actual_delays)** 2).mean())
+            our_err = np.sqrt(((our_est_delays-actual_delays)** 2).mean())
+
+            rmses_tdoa.append(tdoa_err)
+            rmses_gn.append(gn_err)
+            rmses_our.append(our_err)
+
+        rmses_tdoa = np.array(rmses_tdoa)
+        rmses_gn = np.array(rmses_gn)
+        rmses_our = np.array(rmses_our)
+
+        gn_times = np.array(gn_times)
+        our_times = np.array(our_times)
 
 
-
-for x in xs:
-
-    rmses_tdoa = []
-    rmses_gn = []
-    rmses_our = []
-    tdoa_times = []
-    gn_times = []
-    our_times = []
-
-    for i in range(NUM_REPETITIONS):
-
-        (node_drifts, tx_delays, rx_delays, rounds) = repetitions[i]
-
-        rounds = rounds[0:x]
-
-        actual_delays = tx_delays + rx_delays
-
-        ts = time.time()
-        gn_est_delays = calibrate_delays_gn(rounds=rounds)
-        te = time.time()
-        gn_times.append(te-ts)
-
-        ts = time.time()
-        tdoa_est_delays = calibrate_delays_tdoa(rounds=rounds)
-        te = time.time()
-        tdoa_times.append(te - ts)
-
-        ts = time.time()
-        source_device = 0
-        our_est_delays = calibrate_delays_our_approach_via_source_device(rounds=rounds, source_device = 0)
-        te = time.time()
-        our_times.append(te - ts)
-
-        tdoa_err = np.sqrt(((tdoa_est_delays-actual_delays)** 2).mean())
-        gn_err = np.sqrt(((gn_est_delays-actual_delays)** 2).mean())
-        our_err = np.sqrt(((our_est_delays-actual_delays)** 2).mean())
-
-        rmses_tdoa.append(tdoa_err)
-        rmses_gn.append(gn_err)
-        rmses_our.append(our_err)
-
-    rmses_tdoa = np.array(rmses_tdoa)
-    rmses_gn = np.array(rmses_gn)
-    rmses_our = np.array(rmses_our)
-
-    gn_times = np.array(gn_times)
-    our_times = np.array(our_times)
-
-
-    data_rows.append({
-        'num_measurements': x,
-        'tdoa_mean': rmses_tdoa.mean() * c_in_air * 100,
-        'tdoa_std': rmses_tdoa.std() * c_in_air * 100,
-        'gn_mean': rmses_gn.mean()* c_in_air*100,
-        'gn_std': rmses_gn.std()* c_in_air*100,
-        'our_mean': rmses_our.mean() * c_in_air * 100,
-        'our_std': rmses_our.std() * c_in_air * 100,
-        'gn_time_mean': gn_times.mean(),
-        'our_time_mean': our_times.mean(),
-        'speedup': gn_times.mean() / our_times.mean(),
-        'speedup_err': 0,
-    })
-
-
-print(data_rows)
-
-
-import os
-EXPORT_PATH= "export/sim"
-os.makedirs(EXPORT_PATH, exist_ok = True)
-
-df = pd.DataFrame(data_rows)
-
-# df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-df = df.rename(columns={"gn_mean": "Gauss-Newton", "tdoa_mean": "TDoA", "our_mean": "Proposed"})
-
-stds = [df['tdoa_std'], df['gn_std'], df['our_std'], df['speedup_err']]
-
-ax = df.plot.bar(x='num_measurements', y=['TDoA', 'Gauss-Newton', 'Proposed'], yerr=stds)
-plt.ylim(0.0, 12.0)
-ax.set_axisbelow(True)
-ax.set_xlabel("Number of Measurement Rounds")
-ax.set_ylabel("Mean RMSE [cm]")
-
-
-for p in ax.patches:
-    height = p.get_height()
-    if np.isnan(height):
-        height = 0
-
-    ax.text(p.get_x() + p.get_width()/2., 0.0, '%.1f' % height, fontsize=10, color='black', ha='center', va='bottom')
-    #ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
-
-plt.grid(color='gray', linestyle='dashed')
-
-plt.tight_layout()
-
-plt.savefig("{}/rmse.pdf".format(EXPORT_PATH))
-plt.show()
-
-plt.close()
+        data_rows.append({
+            'num_measurements': x,
+            'tdoa_mean': rmses_tdoa.mean() * c_in_air * 100,
+            'tdoa_std': rmses_tdoa.std() * c_in_air * 100,
+            'gn_mean': rmses_gn.mean()* c_in_air*100,
+            'gn_std': rmses_gn.std()* c_in_air*100,
+            'our_mean': rmses_our.mean() * c_in_air * 100,
+            'our_std': rmses_our.std() * c_in_air * 100,
+            'gn_time_mean': gn_times.mean(),
+            'our_time_mean': our_times.mean(),
+            'speedup': gn_times.mean() / our_times.mean(),
+            'speedup_err': 0,
+        })
+    return data_rows
 
 # print(x, rmses_gn.mean() * c_in_air*100, rmses_our.mean()* c_in_air*100, rmses_gn.std() * c_in_air*100, rmses_our.std() * c_in_air*100)
 # #print(rmses_tdoa)
