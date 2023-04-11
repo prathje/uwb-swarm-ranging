@@ -4,6 +4,11 @@ import numpy as np
 
 from testbed import lille, trento_a, trento_b
 
+from logs import gen_estimations_from_testbed_run, gen_measurements_from_testbed_run
+from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
+
+
+import matplotlib
 import matplotlib.pyplot as plt
 from utility import slugify, cached, init_cache, load_env_config
 
@@ -72,6 +77,74 @@ def export_simulation_performance(config, export_dir):
     #plt.show()
 
     plt.close()
+
+
+
+def export_testbed_variance(config, export_dir):
+
+    runs = {
+        'trento_a': 'job',  # [(6,3)],
+        'trento_b': 'job',
+        'lille': 'new_swapped'  # [(11,3), (10,3), (7,1), (5,0)],
+    }
+
+    src_devs = {
+        'trento_a': 'dwm1001.1',  # [(6,3)],
+        'trento_b': 'dwm1001.160',
+        'lille': 'dwm1001-1'  # [(11,3), (10,3), (7,1), (5,0)],
+    }
+
+    std_upper_lim = 5.0
+
+    for (c, t) in enumerate([trento_a, trento_b, lille]):
+
+        def proc():
+            meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+            meas_df['estimated_m'] = meas_df['estimated_tof']
+            meas_df = meas_df[['pair', 'estimated_m', 'dist']]
+
+            ma = np.zeros((len(t.dev_positions), len(t.dev_positions)))
+            res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+            for a in range(len(t.dev_positions)):
+                for b in range(len(t.dev_positions)):
+                    if a < b:
+                        e = res.loc['{}-{}'.format(a, b), ('estimated_m', 'std')]*100   # in cm
+                        ma[a, b] = e
+                        ma[b, a] = e
+            return ma
+
+        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 2), proc))
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+        fig.set_size_inches(6.0, 6.0)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_ma_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
+
+        #plt.show()
 
 
 
@@ -285,7 +358,8 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
-        export_testbed_layouts,
+        export_testbed_variance,
+        #export_testbed_layouts,
         #export_simulation_performance,
     ]
 
