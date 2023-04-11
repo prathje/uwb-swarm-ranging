@@ -2,6 +2,8 @@ import os
 import progressbar
 import numpy as np
 
+from testbed import lille, trento_a, trento_b
+
 import matplotlib.pyplot as plt
 from utility import slugify, cached, init_cache, load_env_config
 
@@ -14,7 +16,6 @@ PERCENTILES_FILL_COLOR = '0.5'
 COLOR_MAP = 'tab10'
 
 c_in_air = 299702547.236
-
 
 def load_plot_defaults():
     # Configure as needed
@@ -48,7 +49,7 @@ def export_simulation_performance(config, export_dir):
     plt.clf()
 
     ax = df.plot.bar(x='num_measurements', y=['TDoA', 'Gauss-Newton', 'Proposed'], yerr=stds, width=0.8)
-    plt.ylim(0.0, 12.0)
+    plt.ylim(0.0, 14.0)
     ax.set_axisbelow(True)
     ax.set_xlabel("Number of Measurement Rounds")
     ax.set_ylabel("Mean RMSE [cm]")
@@ -64,12 +65,92 @@ def export_simulation_performance(config, export_dir):
 
     plt.grid(color='gray', linestyle='dashed')
 
+    plt.gcf().set_size_inches(8.0, 8.0)
     plt.tight_layout()
 
     plt.savefig("{}/sim_rmse.pdf".format(export_dir))
     #plt.show()
 
     plt.close()
+
+
+
+def export_testbed_layouts(config, export_dir):
+
+    # we draw every layout
+
+    # TODO: Extract them from the actual data!
+    high_variance_connections = {
+        'trento_a': [],#[(6,3)],
+        'trento_b': [],
+        'lille': [] #[(11,3), (10,3), (7,1), (5,0)],
+    }
+
+    always_drawn ={
+        'lille': [],
+        'trento_a': [],
+        'trento_b': []
+    }
+
+    limits = {
+        'lille': [None, 10.5, None, 22.5],
+        'trento_a': [None, 80, None, 7.5],
+        'trento_b': [None, 132, None, 7.5]
+    }
+
+    def get_variance(t, a, b):
+        return 1
+
+
+    for (c,t) in enumerate([trento_a, trento_b, lille]):
+        ys = []
+        xs = []
+        ns = []
+
+        for k in t.dev_positions:
+            pos = t.dev_positions[k]
+            xs.append(pos[0])
+            ys.append(pos[1])
+            n = k.replace("dwm1001.", "").replace("dwm1001-", "")
+            ns.append(n)
+
+        plt.clf()
+
+
+        fig, ax = plt.subplots()
+
+
+        ax.scatter(xs, ys, color='C'+str(c), marker='o')
+        ax.set_aspect('equal', adjustable='box')
+
+
+        for (a,b) in high_variance_connections[t.name]:
+            plt.plot([xs[a], xs[b]], [ys[a], ys[b]], 'r', zorder=-10)
+
+        for a in always_drawn[t.name]:
+            for b in range(len(t.dev_positions)):
+                if b < a:
+                    plt.plot([xs[a], xs[b]], [ys[a], ys[b]], 'r', zorder=-10)
+
+
+        for i, txt in enumerate(ns):
+            ax.annotate(txt, (xs[i], ys[i]), xytext=(3, 0), textcoords='offset points', va='center', ha='left')
+
+        ax.set_axisbelow(True)
+        ax.set_xlabel("Position X [m]")
+        ax.set_ylabel("Position Y [m]")
+
+        if t.name == 'lille':
+            ax.invert_yaxis()
+
+        plt.axis(limits[t.name])
+
+        fig.set_size_inches(4.0, 3.5)
+        plt.tight_layout()
+
+        plt.savefig("{}/layout_{}.pdf".format(export_dir, t.name),bbox_inches = 'tight', pad_inches = 0)
+
+        plt.close()
 
 #
 #
@@ -204,12 +285,13 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
-        export_simulation_performance,
+        export_testbed_layouts,
+        #export_simulation_performance,
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):
         name = step.__name__.removeprefix(METHOD_PREFIX)
         print("Handling {}".format(name))
-        export_dir = os.path.join(config['EXPORT_DIR'], name) + '/'
+        export_dir = os.path.join(config['EXPORT_DIR']) + '/'
         os.makedirs(export_dir, exist_ok=True)
         step(config, export_dir)

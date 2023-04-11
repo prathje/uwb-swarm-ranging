@@ -234,7 +234,7 @@ def export_estimations():
 
     with open(LOG_PATH) as f:
 
-        src_dev = devs[1]
+        src_dev = devs[0]
 
         est_df = pandas.DataFrame.from_records(extract_estimations(parse_messages_from_lines(f, src_dev=src_dev)))
 
@@ -261,14 +261,16 @@ def export_estimations():
 
 
 
-        df = est_df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
-        res = df.aggregate(func=['median', 'mean', 'std'])
+        res = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']].aggregate(func=['mean'])
+        res = res[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']].apply(np.sqrt)
+
         ax = res.plot.bar()
         for container in ax.containers:
             ax.bar_label(container)
 
-        plt.savefig("{}/est_aggr.pdf".format(EXPORT_PATH))
+        plt.savefig("{}/est_aggr_rmse.pdf".format(EXPORT_PATH))
         plt.close()
+        exit()
 
         df = est_df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
         ax = df.hist(alpha=0.33, bins=20)
@@ -297,7 +299,7 @@ def export_estimations():
 if __name__ == "__main__":
 
     export_estimations()
-    export_measurements()
+    #export_measurements()
 
 
     #

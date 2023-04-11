@@ -485,6 +485,8 @@ def get_sim_data_rows(xs=[16, 64, 256, 1024], num_repetitiosn=1):
         })
     return data_rows
 
+
+
 # print(x, rmses_gn.mean() * c_in_air*100, rmses_our.mean()* c_in_air*100, rmses_gn.std() * c_in_air*100, rmses_our.std() * c_in_air*100)
 # #print(rmses_tdoa)
 # #print(rmses_gn)

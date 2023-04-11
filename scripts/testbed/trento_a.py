@@ -12,7 +12,6 @@ devs = [
     'dwm1001.7'
 ]
 
-
 dev_ids = {
     'dwm1001.1': '0x5b9a',
     'dwm1001.2': '0x56d4',
@@ -42,10 +41,6 @@ factory_delays = {
     'dwm1001.6': 16460,
     'dwm1001.7': 16460
 }
-
-
-
-
 
 def parse_messages_from_lines(line_it, src_dev=None):
     import json
