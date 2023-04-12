@@ -47,6 +47,7 @@ def parse_messages_from_lines(line_it, src_dev=None):
 
     dev_set = set(devs)
 
+
     if src_dev is not None:
         dev_set = {src_dev}
 

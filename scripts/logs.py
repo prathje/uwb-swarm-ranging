@@ -1,6 +1,18 @@
+import numpy as np
+
 from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
+import ctypes
+
+from testbed_to_c_vals import  create_inference_matrix
 
 def convert_logged_measurement(val):
+
+    if val > 2**62:
+        #this value is likely overflown...
+        number = val & 0xFFFFFFFFFFFFFFFF
+        signed_number = ctypes.c_longlong(number).value
+        val = signed_number
+
     return val / 1000.0
 
 def extract_types(msg_iter, types):
@@ -31,17 +43,24 @@ def extract_types(msg_iter, types):
 
 
 
-def extract_measurements(msg_iter, testbed):
+def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
     rounds, raw_measurements, drift_estimations = extract_types(msg_iter, ['raw_measurements', 'drift_estimation'])
 
     # put all messages into (d, round) sets
 
     for r in rounds:
         for d in testbed.devs:
+
+            if src_dev and d != src_dev:
+                continue # we skip as we do not have this data anyway!
+
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
-                    if b <= a:
+                    if a <= b:
                         continue
+
+
+
                     pi = pair_index(a,b)
 
                     record = {}
@@ -54,6 +73,9 @@ def extract_measurements(msg_iter, testbed):
                     record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
 
                     msg = raw_measurements.get((d, r), None)
+
+                    if msg is not None and include_dummy == False and 'dummy' in msg and msg['dummy'] == True:
+                        continue
 
                     record['estimated_tof'] = None
                     record['round_dur'] = None
@@ -103,15 +125,18 @@ def extract_measurements(msg_iter, testbed):
                     yield record
 
 
-def extract_estimations(msg_iter, testbed):
+def extract_estimations(msg_iter, testbed, src_dev):
     rounds, estimations = extract_types(msg_iter, ['estimation'])
 
     records = []
     for r in rounds:
         for d in testbed.devs:
+            if src_dev and d != src_dev:
+                continue # we skip as we do not have this data anyway!
+                
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
-                    if b <= a:
+                    if a <= b:
                         continue
 
                     pi = pair_index(a,b)
@@ -127,28 +152,100 @@ def extract_estimations(msg_iter, testbed):
 
                     msg = estimations.get((d, r), None)
 
+                    print(pi, len(msg['mean_measurements']))
                     if msg is not None and pi < len(msg['mean_measurements']):
                         record['mean_measurement'] = convert_ts_to_m(convert_logged_measurement(msg['mean_measurements'][pi]))
+
+                        if 'var_measurements' in msg:
+                            record['var_measurement'] = np.square(convert_ts_to_m(np.sqrt(convert_logged_measurement(msg['var_measurements'][pi]))))
+                        else:
+                            record['var_measurement'] = None
+
                         record['est_distance_uncalibrated'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_uncalibrated'][pi]))
                         record['est_distance_factory'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_factory_delays'][pi]))
                         record['est_distance_calibrated'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_estimated_delays'][pi]))
+
+                        if 'tofs_from_filtered_estimated_delays' in msg:
+                            record['est_distance_calibrated_filtered'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_filtered_estimated_delays'][pi]))
+                        else:
+                            record['est_distance_calibrated_filtered'] = None
+
                     else:
                         record['mean_measurement'] = None
+                        record['var_measurement'] = None
                         record['est_distance_uncalibrated'] = None
                         record['est_distance_factory'] = None
                         record['est_distance_calibrated'] = None
+                        record['est_distance_calibrated_filtered'] = None
 
                     yield record
+
+
+def extract_delay_estimates(msg_iter, testbed, src_dev):
+    rounds, estimations = extract_types(msg_iter, ['estimation'])
+    for r in rounds:
+        for d in testbed.devs:
+            if src_dev and d != src_dev:
+                continue  # we skip as we do not have this data anyway!
+
+            msg = estimations.get((d, r), None)
+            print(rounds)
+
+            if msg:
+                record = {}
+                record['delays_from_measurements'] = []
+                record['delays_from_measurements_rounded'] = []
+                record['factory_delays'] = []
+                record['factory_delays_diff'] = []
+
+                for dm in msg['delays_from_measurements']:
+                    record['delays_from_measurements'].append(convert_logged_measurement(dm))
+                    record['delays_from_measurements_rounded'].append(round(convert_logged_measurement(dm)))
+
+                for (i,d) in enumerate(testbed.devs):
+                    record['factory_delays'].append(testbed.factory_delays[d]-16450)
+                    record['factory_delays_diff'].append(record['delays_from_measurements_rounded'][i]-record['factory_delays'][i])
+
+
+
+                M = create_inference_matrix(len(testbed.devs))
+
+                measured = np.array([convert_logged_measurement(x) for x in msg['mean_measurements']])
+
+                actual = np.zeros(shape=round(len(testbed.devs)*(len(testbed.devs)-1)/2))
+
+                for (a, da) in enumerate(testbed.devs):
+                    for (b, db) in enumerate(testbed.devs):
+                        if a > b:
+                            actual[pair_index(a,b)] = convert_m_to_ts(get_dist(testbed.dev_positions[da], testbed.dev_positions[db]))
+
+                diffs =  measured - actual
+
+                record['python_delays'] = np.matmul(M, 2*diffs)
+                record['python_delays_rounded'] = [round(x) for x in record['python_delays']]
+
+                record['python_delays_diff'] = record['python_delays_rounded']-np.array(record['factory_delays'])
+
+                yield record
 
 
 def gen_measurements_from_testbed_run(testbed, run, src_dev=0):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
     with open(logfile) as f:
-        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed)
+        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
 
 
 def gen_estimations_from_testbed_run(testbed, run, src_dev=0):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
-        yield from extract_estimations(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed)
+        yield from extract_estimations(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
+
+def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=0):
+    logfile = "data/{}/{}.log".format(testbed.name, run)
+    with open(logfile) as f:
+        yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
+
+
+from testbed import lille
+print(list(gen_delay_estimates_from_testbed_run(lille, run='job', src_dev='dwm1001-1')))

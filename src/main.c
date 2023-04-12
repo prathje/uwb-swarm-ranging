@@ -15,11 +15,12 @@
 
 LOG_MODULE_REGISTER(main);
 
-#define NUM_MEASUREMENTS 100
+#define NUM_MEASUREMENTS 1000
+#define NUM_DUMMY_ROUNDS 200
 #define INITIAL_DELAY_MS 5000
 #define LOG_RAW 1
 
-#define NUM_ROUNDS (NUM_MEASUREMENTS+1)
+#define NUM_ROUNDS ((NUM_DUMMY_ROUNDS+NUM_MEASUREMENTS)+1)
 #define SLOT_DELAY_MS 2
 #define ROUND_TIMEOUT_MS (NUM_NODES*SLOT_DELAY_MS*2*2)
 #define POST_ROUND_DELAY_MS 50
@@ -118,6 +119,8 @@ static inline uint64_t get_uint_duration(const ts_t *end_ts, const ts_t *start_t
 
 void on_round_end(uint16_t round_number) {
 
+    bool dummy = round_number <= NUM_DUMMY_ROUNDS;
+
     // cur_msg contains all messages of the this round
     // last_msg contains all messages of the previous round
 
@@ -138,11 +141,16 @@ void on_round_end(uint16_t round_number) {
 
    // determine all relative drift rates for now:
 
-
     static uint64_t own_dur[NUM_NODES];
     static uint64_t other_dur[NUM_NODES];
     static float32_t relative_drift_offsets[NUM_NODES];
-   LOG_RAW_CMD("{\"type\": \"drift_estimation\", ");
+
+    if (dummy){
+        LOG_RAW_CMD("{\"type\": \"drift_estimation\", \"dummy\": true, ");
+    }
+    else {
+       LOG_RAW_CMD("{\"type\": \"drift_estimation\", \"dummy\": false, ");
+    }
 
    char buf[256];
    snprintf(buf, sizeof(buf), "\"round\": %hu, \"durations\": [", round_number);
@@ -199,7 +207,12 @@ void on_round_end(uint16_t round_number) {
 
    LOG_RAW_CMD("]}\n");
 
-     LOG_RAW_CMD("{\"type\": \"raw_measurements\", ");
+     if (dummy){
+        LOG_RAW_CMD("{\"type\": \"raw_measurements\", \"dummy\": true, ");
+     }
+     else {
+        LOG_RAW_CMD("{\"type\": \"raw_measurements\", \"dummy\": false, ");
+     }
      snprintf(buf, sizeof(buf), "\"round\": %hu, \"measurements\": [", round_number);
      LOG_RAW_CMD(buf);
 
@@ -229,7 +242,10 @@ void on_round_end(uint16_t round_number) {
 
                 measurement_t tof_in_uwb_us = ((float) two_tof_int) * 0.5;
 
-                estimation_add_measurement(a, b, tof_in_uwb_us);
+                if (dummy){
+                    estimation_add_measurement(a, b, tof_in_uwb_us);
+                }
+
                 int64_t int_val = tof_in_uwb_us * 1000.0f;
                 snprintf(buf, sizeof(buf), "[%llu, %llu, %lld, %lld]", round_dur_a, delay_dur_b, int_val, two_tof_int);
                 LOG_RAW_CMD(buf);
@@ -328,7 +344,7 @@ int main(void) {
 
         int64_t ms_since_last_msg = k_uptime_get() - last_msg_ms;
 
-        if (IS_INITIATOR && msg_tx_buf.round < NUM_ROUNDS) {
+        if (IS_INITIATOR && msg_tx_buf.round <= NUM_ROUNDS) {
             if (schedule_next_round || ms_since_last_msg >= ROUND_TIMEOUT_MS) {
                 schedule_next_round = 0;
                 //LOG_INF("Advancing to new round! (%hu)", msg_tx_buf.round+1);

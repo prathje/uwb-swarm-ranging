@@ -155,15 +155,20 @@ def extract_estimations(msg_iter):
                         record['est_distance_uncalibrated'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_uncalibrated'][pi]))
                         record['est_distance_factory'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_factory_delays'][pi]))
                         record['est_distance_calibrated'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_estimated_delays'][pi]))
+
+                        if 'tofs_from_filtered_estimated_delays' in msg:
+                            record['est_distance_calibrated_filtered'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_filtered_estimated_delays'][pi]))
                     else:
                         record['mean_measurement'] = None
                         record['est_distance_uncalibrated'] = None
                         record['est_distance_factory'] = None
                         record['est_distance_calibrated'] = None
+                        record['est_distance_calibrated_filtered'] = None
 
                     yield record
 
 
+#from testbed.lille import name, dev_positions, parse_messages_from_lines, devs
 from testbed.trento_a import name, dev_positions, parse_messages_from_lines, devs
 
 LOG_FILE = "job"
@@ -176,6 +181,9 @@ os.makedirs(EXPORT_PATH, exist_ok = True)
 
 def export_measurements():
 
+    import eval
+    eval.load_plot_defaults()
+
     with open(LOG_PATH) as f:
 
         src_dev = devs[1]
@@ -185,6 +193,10 @@ def export_measurements():
         # we first plot the number of measurements for all pairs
 
         meas_df = meas_df[(meas_df['device'] == src_dev)]
+
+        meas_df = meas_df[(meas_df['round'] <= 1000)]
+
+        meas_df['offset'] = (meas_df['estimated_tof'] - meas_df['dist'])*100
 
         for i in range(0, len(devs)):
             d0 = devs[i]
@@ -205,20 +217,32 @@ def export_measurements():
                 plt.savefig("{}/measurements_rel_drifts_{}-{}.pdf".format(EXPORT_PATH, i, other))
                 plt.close()
 
-            for other in range(0, i):
+            for other in range(0, i-1):
                 df = meas_df
                 df = df[(df['initiator'] == other) & ((df['responder'] == i))]
 
-                ax = df.plot(kind='scatter', x='round', y='calculated_tof', color='b', label='Python (64 bit)', alpha=0.5, figsize=(20, 10), ylim=(0, 12))
-                ax = df.plot(ax=ax, kind='scatter', x='round', y='estimated_tof', color='r', label='C', alpha=0.5)
+                df_b = meas_df[(meas_df['initiator'] == other+1) & ((meas_df['responder'] == i))]
 
-                plt.axhline(y=get_dist(dev_positions[d0], dev_positions[devs[other]]), color='r', linestyle='-')
+                ax = df.plot(kind='scatter', x='round', y='offset', color='C0',  label='{}-{}'.format(i+1, other+1), alpha=0.5, figsize=(5, 4), edgecolors='none')
+                ax = df_b.plot(ax=ax, kind='scatter', x='round', y='offset', color='C1', label='{}-{}'.format(i+1, other+2), alpha=0.5, edgecolors='none')
+
+                #plt.axhline(y=get_dist(dev_positions[d0], dev_positions[devs[other]]), color='b', linestyle='-')
 
                 #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_single', color='b', label='C (32 bit)')
                 #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_int_10', color='b', label='Python (Integer)')
                 print("Saving {}-{}".format(i, other))
-                plt.title("Scatter {}-{}".format(i, other))
+
+                plt.grid(color='lightgray', linestyle='dashed')
+
+                ax.set_ylabel('Offset [cm]')
+                ax.set_xlabel('Round')
+
+                plt.gcf().set_size_inches(5.0, 4.5)
+                plt.tight_layout()
+
+                #plt.title("Scatter {}-{}".format(i, other))
                 plt.savefig("{}/measurements_scatter_{}-{}.pdf".format(EXPORT_PATH, i, other))
+
                 plt.close()
                 #plt.show()
 
@@ -244,14 +268,17 @@ def export_estimations():
         est_df['err_uncalibrated'] = est_df['est_distance_uncalibrated'] - est_df['dist']
         est_df['err_factory'] = est_df['est_distance_factory'] - est_df['dist']
         est_df['err_calibrated'] = est_df['est_distance_calibrated'] - est_df['dist']
+        est_df['err_calibrated_filtered'] = est_df['est_distance_calibrated_filtered'] - est_df['dist']
 
         est_df['abs_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.abs)
         est_df['abs_err_factory'] = est_df['err_factory'].apply(np.abs)
         est_df['abs_err_calibrated'] = est_df['err_calibrated'].apply(np.abs)
+        est_df['abs_err_calibrated_filtered'] = est_df['err_calibrated_filtered'].apply(np.abs)
 
         est_df['squared_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.square)
         est_df['squared_err_factory'] = est_df['err_factory'].apply(np.square)
         est_df['squared_err_calibrated'] = est_df['err_calibrated'].apply(np.square)
+        est_df['squared_err_calibrated_filtered'] = est_df['err_calibrated_filtered'].apply(np.square)
 
         df = est_df.sort_values(by='err_uncalibrated')
         # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
@@ -260,9 +287,8 @@ def export_estimations():
         plt.close()
 
 
-
-        res = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']].aggregate(func=['mean'])
-        res = res[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']].apply(np.sqrt)
+        res = df[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated', 'squared_err_calibrated_filtered']].aggregate(func=['mean'])
+        res = res[['squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated', 'squared_err_calibrated_filtered']].apply(np.sqrt)
 
         ax = res.plot.bar()
         for container in ax.containers:
@@ -270,15 +296,14 @@ def export_estimations():
 
         plt.savefig("{}/est_aggr_rmse.pdf".format(EXPORT_PATH))
         plt.close()
-        exit()
 
-        df = est_df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
+        df = est_df[['abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated', 'abs_err_calibrated_filtered']]
         ax = df.hist(alpha=0.33, bins=20)
 
         plt.savefig("{}/est_aggr_hist.pdf".format(EXPORT_PATH))
         plt.close()
 
-        df = est_df[['initiator', 'responder', 'abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated']]
+        df = est_df[['initiator', 'responder', 'abs_err_uncalibrated', 'abs_err_factory', 'abs_err_calibrated', 'abs_err_calibrated_filtered']]
 
         df_init = df
         df_resp = df
@@ -299,7 +324,8 @@ def export_estimations():
 if __name__ == "__main__":
 
     export_estimations()
-    #export_measurements()
+    export_measurements()
+
 
 
     #

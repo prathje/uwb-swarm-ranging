@@ -4,7 +4,7 @@ import numpy as np
 
 from testbed import lille, trento_a, trento_b
 
-from logs import gen_estimations_from_testbed_run, gen_measurements_from_testbed_run
+from logs import gen_estimations_from_testbed_run, gen_measurements_from_testbed_run, gen_delay_estimates_from_testbed_run
 from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
 
 
@@ -22,6 +22,19 @@ COLOR_MAP = 'tab10'
 
 c_in_air = 299702547.236
 
+
+runs = {
+        'trento_a': 'job',  # [(6,3)],
+        'trento_b': 'job',
+        'lille': 'job'  # [(11,3), (10,3), (7,1), (5,0)],
+}
+
+src_devs = {
+        'trento_a': 'dwm1001.1',  # [(6,3)],
+        'trento_b': 'dwm1001.160',
+        'lille': 'dwm1001-1'  # [(11,3), (10,3), (7,1), (5,0)],
+}
+
 def load_plot_defaults():
     # Configure as needed
     plt.rc('lines', linewidth=2.0)
@@ -30,6 +43,7 @@ def load_plot_defaults():
     plt.rc('pdf', fonttype=42)
     plt.rc('ps', fonttype=42)
     plt.rc('font', size=11)
+    plt.rcParams['axes.axisbelow'] = True
 
 
 def export_simulation_performance(config, export_dir):
@@ -68,12 +82,12 @@ def export_simulation_performance(config, export_dir):
                 va='bottom')
         # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
 
-    plt.grid(color='gray', linestyle='dashed')
+    plt.grid(color='lightgray', linestyle='dashed')
 
-    plt.gcf().set_size_inches(8.0, 8.0)
+    plt.gcf().set_size_inches(6.5, 6.5)
     plt.tight_layout()
 
-    plt.savefig("{}/sim_rmse.pdf".format(export_dir))
+    plt.savefig("{}/sim_rmse.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
     #plt.show()
 
     plt.close()
@@ -82,38 +96,91 @@ def export_simulation_performance(config, export_dir):
 
 def export_testbed_variance(config, export_dir):
 
-    runs = {
-        'trento_a': 'job',  # [(6,3)],
-        'trento_b': 'job',
-        'lille': 'new_swapped'  # [(11,3), (10,3), (7,1), (5,0)],
-    }
+    std_upper_lim = 10.0
 
-    src_devs = {
-        'trento_a': 'dwm1001.1',  # [(6,3)],
-        'trento_b': 'dwm1001.160',
-        'lille': 'dwm1001-1'  # [(11,3), (10,3), (7,1), (5,0)],
-    }
-
-    std_upper_lim = 5.0
-
-    for (c, t) in enumerate([trento_a, trento_b, lille]):
+    for (c, t) in enumerate([lille, trento_a, trento_b]):
 
         def proc():
             meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
             meas_df['estimated_m'] = meas_df['estimated_tof']
             meas_df = meas_df[['pair', 'estimated_m', 'dist']]
 
-            ma = np.zeros((len(t.dev_positions), len(t.dev_positions)))
+            ma = np.zeros((len(t.devs), len(t.devs)))
             res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
-            for a in range(len(t.dev_positions)):
-                for b in range(len(t.dev_positions)):
-                    if a < b:
+
+            for a in range(len(t.devs)):
+                for b in range(len(t.devs)):
+                    if a > b:
                         e = res.loc['{}-{}'.format(a, b), ('estimated_m', 'std')]*100   # in cm
                         ma[a, b] = e
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 2), proc))
+        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 6), proc))
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+        fig.set_size_inches(5.0, 5.0)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_ma_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
+
+        #plt.show()
+
+def export_testbed_variance_from_device(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for (c, t) in enumerate([lille, trento_a, trento_b]):
+
+        def proc():
+            est_df = pd.DataFrame.from_records(gen_estimations_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+
+            round = est_df['round'].max()
+            est_df = est_df[(est_df['round'] == round)]
+
+
+            ma = np.zeros((len(t.devs), len(t.devs)))
+
+            for a in range(len(t.devs)):
+                for b in range(len(t.devs)):
+                    if a > b:
+                        res = est_df.loc[est_df['pair'] == '{}-{}'.format(a, b), "var_measurement"]
+
+                        e = 0.0
+                        if len(res) > 0:
+                            var = (res.to_numpy())[0]
+                            if var is not None:
+                                e = np.sqrt(var)*100
+
+                        ma[a, b] = e
+                        ma[b, a] = e
+            print(ma)
+            return ma
+
+        ma = np.array(cached(('meas_var_device', t.name, runs[t.name], src_devs[t.name], 7), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -140,7 +207,7 @@ def export_testbed_variance(config, export_dir):
         fig.set_size_inches(6.0, 6.0)
         plt.tight_layout()
 
-        plt.savefig("{}/var_ma_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+        plt.savefig("{}/var_ma_{}_from_device.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
 
         plt.close()
 
@@ -171,16 +238,13 @@ def export_testbed_layouts(config, export_dir):
         'trento_b': [None, 132, None, 7.5]
     }
 
-    def get_variance(t, a, b):
-        return 1
-
 
     for (c,t) in enumerate([trento_a, trento_b, lille]):
         ys = []
         xs = []
         ns = []
 
-        for k in t.dev_positions:
+        for k in t.devs:
             pos = t.dev_positions[k]
             xs.append(pos[0])
             ys.append(pos[1])
@@ -201,8 +265,8 @@ def export_testbed_layouts(config, export_dir):
             plt.plot([xs[a], xs[b]], [ys[a], ys[b]], 'r', zorder=-10)
 
         for a in always_drawn[t.name]:
-            for b in range(len(t.dev_positions)):
-                if b < a:
+            for b in range(len(t.devs)):
+                if a > a:
                     plt.plot([xs[a], xs[b]], [ys[a], ys[b]], 'r', zorder=-10)
 
 
@@ -229,24 +293,12 @@ def export_testbed_layouts(config, export_dir):
 
 def export_overall_rmse_reduction(config, export_dir):
 
-    runs = {
-        'trento_a': 'job',  # [(6,3)],
-        'trento_b': 'job_with_one_est_at_end',
-        'lille': 'new_swapped'  # [(11,3), (10,3), (7,1), (5,0)],
-    }
-
-    src_devs = {
-        'trento_a': 'dwm1001.1',  # [(6,3)],
-        'trento_b': 'dwm1001.160',
-        'lille': 'dwm1001-1'  # [(11,3), (10,3), (7,1), (5,0)],
-    }
 
     # we extract values for:
     # uncalibrated, factory, calibrated_unfiltered, calibrated_filtered
 
     errs = {}
     ts = [trento_a, trento_b, lille]
-    groups = ['err_uncalibrated', 'err_factory', 'err_calibrated']
 
     for (c, t) in enumerate(ts):
         def proc():
@@ -254,15 +306,21 @@ def export_overall_rmse_reduction(config, export_dir):
 
             round = est_df['round'].max()
 
+
+
             est_df = est_df[(est_df['round'] == round) & (est_df['mean_measurement'].notna())]
             est_df['err_uncalibrated'] = est_df['est_distance_uncalibrated'] - est_df['dist']
             est_df['err_factory'] = est_df['est_distance_factory'] - est_df['dist']
             est_df['err_calibrated'] = est_df['est_distance_calibrated'] - est_df['dist']
+            est_df['err_calibrated_filtered'] = est_df['est_distance_calibrated_filtered'] - est_df['dist']
+
+            #est_df['std'] = est_df['var_measurement'].apply(np.sqrt) * 100.0
 
             return {
                 'err_uncalibrated': est_df['err_uncalibrated'].to_numpy(),
                 'err_factory': est_df['err_factory'].to_numpy(),
                 'err_calibrated': est_df['err_calibrated'].to_numpy()
+                #'err_calibrated_filtered': est_df['err_calibrated_filtered'].to_numpy()
             }
 
             # est_df['abs_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.abs)
@@ -284,7 +342,7 @@ def export_overall_rmse_reduction(config, export_dir):
             #     'rmse_calibrated': np.sqrt(res['squared_err_calibrated'][0])
             # }
 
-        data = cached(('overall', t.name, runs[t.name], src_devs[t.name], 10), proc)
+        data = cached(('overall', t.name, runs[t.name], src_devs[t.name], 17), proc)
         for k in data:
             if k not in errs:
                 errs[k] = []
@@ -293,7 +351,9 @@ def export_overall_rmse_reduction(config, export_dir):
     def rmse(xs):
         return np.sqrt(np.mean(np.square(np.array(xs)))), 0
 
+
     stds = {}
+
     for k in errs:
         stds[k] = []
         for (i, xs) in enumerate(errs[k]):
@@ -307,6 +367,8 @@ def export_overall_rmse_reduction(config, export_dir):
     width = 0.25  # the width of the bars
     multiplier = 0
 
+
+    plt.clf()
     fig, ax = plt.subplots(layout='constrained')
 
     labels = {
@@ -317,7 +379,7 @@ def export_overall_rmse_reduction(config, export_dir):
 
     for attribute, measurement in errs.items():
         offset = width * multiplier
-        rects = ax.bar(x + offset, measurement, width, label=labels[attribute], yerr=stds[attribute])
+        rects = ax.bar(x + offset, measurement, width, label=labels[attribute])
         ax.bar_label(rects, fmt="{:.2f}", padding=3)
         multiplier += 1
 
@@ -325,127 +387,159 @@ def export_overall_rmse_reduction(config, export_dir):
     ax.set_xlabel('Scenario')
     ax.set_xticks(x + width, scenarios)
     ax.legend()
+    plt.gca().yaxis.grid(True, color='lightgray', linestyle='dashed')
+    ax.set_ylim(0, 20)
+
+    plt.tight_layout()
+    plt.savefig("{}/rmse_comparison.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+
+
+def export_overall_mae_reduction(config, export_dir):
+
+
+    # we extract values for:
+    # uncalibrated, factory, calibrated_unfiltered, calibrated_filtered
+
+    errs = {}
+    ts = [trento_a, trento_b, lille]
+
+    for (c, t) in enumerate(ts):
+        def proc():
+            est_df = pd.DataFrame.from_records(gen_estimations_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+
+            round = est_df['round'].max()
+
+
+
+            est_df = est_df[(est_df['round'] == round) & (est_df['mean_measurement'].notna())]
+            est_df['err_uncalibrated'] = est_df['est_distance_uncalibrated'] - est_df['dist']
+            est_df['err_factory'] = est_df['est_distance_factory'] - est_df['dist']
+            est_df['err_calibrated'] = est_df['est_distance_calibrated'] - est_df['dist']
+            est_df['err_calibrated_filtered'] = est_df['est_distance_calibrated_filtered'] - est_df['dist']
+
+            #est_df['std'] = est_df['var_measurement'].apply(np.sqrt) * 100.0
+
+            return {
+                'err_uncalibrated': est_df['err_uncalibrated'].to_numpy(),
+                'err_factory': est_df['err_factory'].to_numpy(),
+                'err_calibrated': est_df['err_calibrated'].to_numpy(),
+                'err_calibrated_filtered': est_df['err_calibrated_filtered'].to_numpy()
+            }
+
+            # est_df['abs_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.abs)
+            # est_df['abs_err_factory'] = est_df['err_factory'].apply(np.abs)
+            # est_df['abs_err_calibrated'] = est_df['err_calibrated'].apply(np.abs)
+            #
+            # est_df['squared_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.square)
+            # est_df['squared_err_factory'] = est_df['err_factory'].apply(np.square)
+            # est_df['squared_err_calibrated'] = est_df['err_calibrated'].apply(np.square)
+            #
+            # # we determine the mean squared error of all pairs
+            #
+            # est_df = est_df[['pair', 'squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']]
+            # res = est_df.aggregate(func=['mean'])
+            #
+            # return {
+            #     'rmse_uncalibrated': np.sqrt(res['squared_err_uncalibrated'][0]),
+            #     'rmse_factory': np.sqrt(res['squared_err_factory'][0]),
+            #     'rmse_calibrated': np.sqrt(res['squared_err_calibrated'][0])
+            # }
+
+        data = cached(('overall_mae', t.name, runs[t.name], src_devs[t.name], 17), proc)
+        for k in data:
+            if k not in errs:
+                errs[k] = []
+            errs[k].append(data[k]*100)
+
+    def ae(xs):
+        return np.abs(np.array(xs)).mean(), np.abs(np.array(xs)).std()
+
+
+    stds = {}
+
+    for k in errs:
+        stds[k] = []
+        for (i, xs) in enumerate(errs[k]):
+            e, sd = ae(xs)
+            errs[k][i] = e*100
+            stds[k].append(sd*100)
+
+    scenarios = ["Trento (7)", "Trento (14)", "IoT-Lab (14)"]
+
+    x = np.arange(len(scenarios))  # the label locations
+    width = 0.25  # the width of the bars
+    multiplier = 0
+    plt.clf()
+    fig, ax = plt.subplots(layout='constrained')
+
+    labels = {
+        'err_uncalibrated': "Uncalibrated",
+        'err_factory': "Factory",
+        'err_calibrated': "Calibrated",
+        'err_calibrated_filtered': "Calibrated Filtered",
+    }
+
+    for attribute, measurement in errs.items():
+        offset = width * multiplier
+        rects = ax.bar(x + offset, measurement, width, label=labels[attribute], yerr=stds[attribute])
+        ax.bar_label(rects, fmt="{:.2f}", padding=3)
+        multiplier += 1
+
+    ax.set_ylabel('MAE [cm]')
+    ax.set_xlabel('Scenario')
+    ax.set_xticks(x + width, scenarios)
+    ax.legend()
     #ax.set_ylim(0, 250)
 
-    plt.show()
-#
-#
-# def export_sine_wave_example(config, export_dir):
-#     # We got multiple experiment runs with individual measurements
-#     num_runs = 10
-#
-#     # Create our measurement steps
-#     xs = np.linspace(0, 2 * np.pi, 100, endpoint=True)
-#
-#     # We also collect overall data for mean and confidence interval
-#     overall_data = []
-#
-#     for r in range(0, num_runs):
-#         name = "Sine Wave Run {}".format(r)
-#
-#         def proc():
-#             # you can load your data from a database or CSV file here
-#             # we will randomly generate data
-#             ys = np.sin(np.array(xs))
-#             # we add some uniform errors
-#             ys += np.random.uniform(-0.1, 0.1, len(xs))
-#             return ys
-#
-#         # If caching is enabled, this line checks for available cache data
-#         # If no data was found, the proc callback is executed and the result cached
-#         # Use ys = proc() if caching not yet wanted
-#         ys = cached(('sine_wave', r), proc)
-#
-#         # We also add the data to overall_data
-#         overall_data.append(ys)
-#
-#         plt.clf()
-#
-#         # Plot the main data
-#         plt.plot(xs, ys, linestyle='-', label="Sin Run {}".format(r), color='C' + str(r + 1))
-#
-#         plt.legend()
-#         plt.xlabel("x")
-#         plt.ylabel("sin(x)")
-#         plt.axis([None, None, None, None])
-#         plt.grid(True)
-#         plt.tight_layout()
-#         plt.savefig(export_dir + slugify(name) + ".pdf", format="pdf")
-#         plt.close()
-#
-#     overall_data = np.array(overall_data)
-#
-#     # We swap the axes to get all values at the first position together
-#     overall_data = np.swapaxes(overall_data, 0, 1)
-#
-#     # We can then merge each step to get the mean
-#     mean = np.mean(overall_data, axis=1)
-#
-#     # calculate confidence intervals for each mean
-#     cis = 1.96 * np.std(overall_data, axis=1) / np.sqrt(np.size(overall_data, axis=1))
-#
-#     # Calculate the lower and upper bounds of the 95% percentiles
-#     # This describes that 95% of the measurements (for each timestep) are within that range
-#     # Use standard error to determine the "quality" of your calculated mean
-#     (lq, uq) = np.percentile(overall_data, [2.5, 97.5], axis=1)
-#
-#     # clear the plot
-#     plt.clf()
-#
-#     # plot the mean values
-#     plt.plot(xs, mean, linestyle='-', label="Mean", color='C1')
-#
-#     # plot the confidence interval for the computed means
-#     plt.fill_between(xs, (mean - cis), (mean + cis), color=CONFIDENCE_FILL_COLOR, label='CI')
-#
-#     # plot also the 95% percentiles, i.e., the range in that 95% of our data falls, this is quite different from the confidence interval
-#     plt.fill_between(xs, lq, uq, color=PERCENTILES_FILL_COLOR, label='95% Percentiles')
-#
-#     plt.legend()
-#     plt.xlabel("x")
-#     plt.ylabel("sin(x)")
-#     plt.axis([None, None, None, None])
-#     plt.grid(True)
-#     plt.tight_layout()
-#     plt.savefig(export_dir + slugify("Sine Wave Mean") + ".pdf", format="pdf")
-#     plt.close()
-#
-#
-# def export_bar_example(config, export_dir):
-#     # we want to display two bar grahps
-#     # see export_sine_wave_example
-#
-#     num_data_points = 100
-#
-#     data_a = cached(('example_2', 'a'), lambda: np.random.uniform(75, 82, num_data_points))
-#     data_b = cached(('example_2', 'b'), lambda: np.random.uniform(70, 96, num_data_points))
-#
-#     mean_a = np.mean(data_a)
-#     mean_b = np.mean(data_b)
-#
-#     std_a = np.std(data_a)
-#     std_b = np.std(data_b)
-#
-#     plt.clf()
-#
-#     fig, ax = plt.subplots()
-#
-#     ax.bar(["Interesting Bar A", "Somewhat Nice Bar B"], [mean_a, mean_b], yerr=[std_a, std_b], align='center',
-#            ecolor='black', capsize=5, color=['C1', 'C2', 'C3'])
-#     ax.yaxis.grid(True)
-#     plt.ylabel("Something [unit]")
-#     plt.axis([None, None, 0, 100])
-#
-#     # Adapt the figure size as needed
-#     fig.set_size_inches(5.0, 8.0)
-#     plt.tight_layout()
-#     plt.savefig(export_dir + slugify(("Bar", 5.0, 8.0)) + ".pdf", format="pdf")
-#
-#     fig.set_size_inches(4.0, 4.0)
-#     plt.tight_layout()
-#     plt.savefig(export_dir + slugify(("Bar", 4.0, 4.0)) + ".pdf", format="pdf")
-#
-#     plt.close()
+    plt.tight_layout()
+    plt.savefig("{}/mae_comparison.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+
+
+def export_trento_a_pairs(config, export_dir):
+
+    # we extract values for:
+    # uncalibrated, factory, calibrated_unfiltered, calibrated_filtered
+
+    errs = {}
+    ts = [trento_a]
+
+    for (c, t) in enumerate(ts):
+        est_df = pd.DataFrame.from_records(gen_estimations_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+
+        round = est_df['round'].max()
+
+        est_df = est_df[(est_df['round'] == round) & (est_df['mean_measurement'].notna())]
+
+        est_df['Uncalibrated'] = est_df['est_distance_uncalibrated'] - est_df['dist']
+        est_df['Factory'] = est_df['est_distance_factory'] - est_df['dist']
+        est_df['Calibrated'] = est_df['est_distance_calibrated'] - est_df['dist']
+        est_df['err_calibrated_filtered'] = est_df['est_distance_calibrated_filtered'] - est_df['dist']
+
+        est_df = est_df.sort_values(by='Uncalibrated')
+
+
+
+        def rename_pairs(x=None):
+            return '{}-{}'.format(x['initiator']+1, x['responder']+1)
+
+        est_df['pair'] = est_df.apply(rename_pairs, axis=1)
+
+        # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
+        est_df.plot.bar(x='pair', y=['Uncalibrated', 'Factory', 'Calibrated'])
+
+        plt.legend()
+        plt.xlabel("Pair")
+        plt.ylabel("Error [cm]")
+
+        plt.gcf().set_size_inches(5.0, 4.0)
+        plt.tight_layout()
+
+        plt.gca().yaxis.grid(True, color='lightgray', linestyle='dashed')
+
+        plt.savefig("{}/error_sorted.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
+        plt.close()
+
+
 
 
 
@@ -461,10 +555,13 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
+        export_simulation_performance,
+        export_trento_a_pairs,
+        export_testbed_variance,
+        #export_testbed_variance_from_device,
+        export_overall_mae_reduction,
         export_overall_rmse_reduction,
-        #export_testbed_variance,
         #export_testbed_layouts,
-        #export_simulation_performance,
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):
