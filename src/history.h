@@ -3,7 +3,7 @@
 
 #include "nodes.h"
 
-#define HISTORY_NUM_ROUNDS (25)
+#define HISTORY_NUM_ROUNDS (0)
 #define HISTORY_LENGTH (HISTORY_NUM_ROUNDS*NUM_NODES)
 
 typedef uint8_t ts_t[5];

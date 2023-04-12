@@ -102,7 +102,7 @@ def parse_messages_from_lines(line_it, src_dev=None):
                 msg['_log_ts'] = ts_str
                 yield (log_ts, dev, msg)
             except json.decoder.JSONDecodeError:
-                print(json_str)
+                #print(json_str)
                 pass
         except ValueError:
             pass

@@ -77,16 +77,17 @@ def print_testbed(t):
                 print("\t {}, // {} to {}".format(round(get_dist(t.dev_positions[da], t.dev_positions[db]), 4), da, db))
     print("};")
 
-    print('//TODO: we might want to enable the robust estimation all the time?')
-    print('#if 1')
-    print("float32_t estimation_mat_full[NUM_NODES][(NUM_PAIRS/2)] =")
-    print_est_matrix(create_inference_matrix(len(t.devs)))
-    print(";")
-    print('#else')
-    print("float32_t estimation_mat_robus[NUM_NODES-1][(NUM_NODES-1)*(NUM_NODES-2)/2)] =")
-    print_est_matrix(create_inference_matrix(len(t.devs)-1))
-    print(";")
-    print('#endif')
+
+    # print('//TODO: we might want to enable the robust estimation all the time?')
+    # print('#if 1')
+    # print("float32_t estimation_mat_full[NUM_NODES][(NUM_PAIRS/2)] =")
+    # print_est_matrix(create_inference_matrix(len(t.devs)))
+    # print(";")
+    # print('#else')
+    # print("float32_t estimation_mat_robus[NUM_NODES-1][(NUM_NODES-1)*(NUM_NODES-2)/2)] =")
+    # print_est_matrix(create_inference_matrix(len(t.devs)-1))
+    # print(";")
+    # print('#endif')
 
 
 

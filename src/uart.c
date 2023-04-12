@@ -10,3 +10,7 @@ void uart_out(char* msg) {
         msg++;
     }
 }
+
+void uart_disabled(char* msg) {
+    //NOOP
+}

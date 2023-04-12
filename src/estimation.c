@@ -29,6 +29,14 @@ LOG_MODULE_REGISTER(estimation);
 #endif
 
 
+
+#define MAX_SD_IN_M (0.05)
+#define MAX_SD_IN_UWB_TS (MAX_SD_IN_M/SPEED_OF_LIGHT_M_PER_UWB_TU)
+#define MAX_VAR_IN_M (MAX_SD_IN_UWB_TS*MAX_SD_IN_UWB_TS)
+
+
+
+
 // the maximum of supported nodes for estimation (limited by memory sadly)
 // TODO: They use up a LOT of memory! We could later allocate them dynamically (if we would need that extra space!)
 
@@ -55,10 +63,12 @@ static void estimate(
     float32_t delays_out[EST_MAX_NODES],
     float32_t tofs_out[EST_MAX_PAIRS],
     float32_t mean_measurements[EST_MAX_PAIRS],
+    float32_t var_measurements[EST_MAX_PAIRS],
     bool delay_known[EST_MAX_NODES],
     float32_t known_delays[EST_MAX_NODES],
     bool tof_known[EST_MAX_PAIRS],
-    float32_t known_tofs[EST_MAX_PAIRS]
+    float32_t known_tofs[EST_MAX_PAIRS],
+    float32_t max_pair_variance
 ) {
 
     if (num_nodes > EST_MAX_NODES) {
@@ -67,7 +77,6 @@ static void estimate(
     }
 
     int ret = 0;
-
 
     uint32_t num_pairs = PAIRS(num_nodes); // we use the actual number of input pairs
     uint32_t num_input_rows = PAIRS(num_nodes); // we use the actual number of input pairs
@@ -79,10 +88,12 @@ static void estimate(
             num_input_cols++;
         }
     }
-     for(int i = 0; i < num_pairs; i++) {
+
+    for(int i = 0; i < num_pairs; i++) {
         if (!tof_known[i]) {
             num_input_cols++;
         }
+        // TDDO: We could also filter by variance here
     }
 
     // make sure that matrices are empty! we only need to reset matrix A since the others are overriden anyway
@@ -128,6 +139,9 @@ static void estimate(
                     continue;
                 }
                 size_t pi = pair_index(a, b);
+                if (max_pair_variance > 0.0 && var_measurements != NULL && var_measurements[pi] >= max_pair_variance) {
+                    continue; // we skip this entry as it has too high variance, note that we do not change parameter indices because of it
+                }
                 matrix_data_a[(pi * num_input_cols) + param_index] = 1.0;
             }
             param_index++;
@@ -230,13 +244,17 @@ static void estimate(
                 float32_t val;
                 if (delay_known[a] && delay_known[b] && tof_known[pi]) {
                     val = 0.0; // nothing todo here! this is a null row...
-                } else {
+                }
+                else if (delay_known[a] && max_pair_variance > 0.0 && var_measurements != NULL && var_measurements[pi] >= max_pair_variance) {
+                    val = 0.0; // we remove this entire row BUT just for antenna delay estimation!
+                }
+                else {
                     val = mean_measurements[pi] * 2.0;  // we need to scale this accordingly
 
                     if (delay_known[a]) {
                         val -= known_delays[a];
                     }
-                    if(delay_known[b]) {
+                    if (delay_known[b]) {
                         val -= known_delays[b];
                     }
                     if(tof_known[pi]) {
@@ -276,9 +294,13 @@ static void estimate(
         // first copy all the delays
         for(int a = 0; a < num_nodes; a++) {
             if (delay_known[a]) {
-                delays_out[a] = known_delays[a];
+                if (delays_out != NULL){
+                    delays_out[a] = known_delays[a];
+                }
             } else {
-                delays_out[a] = matrix_data_a[param_index];
+                if (delays_out != NULL){
+                    delays_out[a] = matrix_data_a[param_index];
+                }
                 param_index++;
             }
         }
@@ -292,9 +314,13 @@ static void estimate(
                 size_t pi = pair_index(a, b);
 
                  if (tof_known[pi]) {
-                     tofs_out[pi] = known_tofs[pi];
+                    if (tofs_out != NULL) {
+                        tofs_out[pi] = known_tofs[pi];
+                    }
                  } else {
-                    tofs_out[pi] = matrix_data_a[param_index];
+                    if (tofs_out != NULL) {
+                        tofs_out[pi] = matrix_data_a[param_index];
+                    }
                     param_index++;
                  }
             }
@@ -338,6 +364,7 @@ static void log_estimation(
     float32_t delays_out[EST_MAX_NODES],
     float32_t tofs_out[EST_MAX_PAIRS],
     float32_t mean_measurements[EST_MAX_PAIRS],
+    float32_t var_measurements[EST_MAX_PAIRS],
     bool delay_known[EST_MAX_NODES],
     float32_t known_delays[EST_MAX_NODES],
     bool tof_known[EST_MAX_PAIRS],
@@ -345,6 +372,8 @@ static void log_estimation(
 ) {
      uart_out("{ \"mean_measurements\": ");
      output_measurements(mean_measurements, EST_MAX_PAIRS, NULL);
+     uart_out("{ \"var_measurements\": ");
+     output_measurements(var_measurements, EST_MAX_PAIRS, NULL);
      uart_out(", \"delays_out\": ");
      output_measurements(delays_out, EST_MAX_NODES, NULL);
      uart_out(", \"tofs_out\": ");
@@ -353,7 +382,7 @@ static void log_estimation(
      output_measurements(known_delays, EST_MAX_NODES, NULL); // we just assume we know everything for now
      uart_out(", \"known_tofs\": ");
      output_measurements(known_tofs, EST_MAX_PAIRS, NULL); // we just assume we know everything for now
-    uart_out("}");
+        uart_out("}");
 }
 
 void estimate_all(uint16_t round) {
@@ -361,6 +390,7 @@ void estimate_all(uint16_t round) {
     static measurement_t delays_out[EST_MAX_NODES] = {0.0};
     static measurement_t tofs_out[EST_MAX_PAIRS] = {0.0};
     static measurement_t mean_measurements[EST_MAX_PAIRS] = {0.0};
+    static measurement_t var_measurements[EST_MAX_PAIRS] = {0.0};
 
     static bool delay_known[EST_MAX_NODES];
     static measurement_t known_delays[EST_MAX_NODES];
@@ -370,7 +400,6 @@ void estimate_all(uint16_t round) {
     int64_t estimate_start = 0;
     int64_t estimate_duration = 0;
 
-
     //for(int n = EST_MAX_NODES; n <= EST_MAX_NODES; n++)
     int n = EST_MAX_NODES; // we just execute it for a single node right now
     {
@@ -378,25 +407,26 @@ void estimate_all(uint16_t round) {
          char buf[32];
          snprintf(buf, sizeof(buf), "\"round\": %hu", round);
          uart_out(buf);
-        // TODO: Should we reorder nodes?
 
         //initialize known values (measurements, delays, distances
         for(int i = 0; i < n; i++) {
             known_delays[i] = (float32_t) node_factory_antenna_delay_offsets[i];
         }
 
-         for(int p = 0; p < PAIRS(n); p++) {
+        for(int p = 0; p < PAIRS(n); p++) {
+            known_tofs[p] = node_distances[p] / SPEED_OF_LIGHT_M_PER_UWB_TU;
             // TODO: If we reorder, we have to be careful with those distances!
             mean_measurements[p] = get_mean_measurement(p);
-            known_tofs[p] = node_distances[p] / SPEED_OF_LIGHT_M_PER_UWB_TU;
+            var_measurements[p] = get_var_measurement(p);
         }
-
 
         uart_out(", \"mean_measurements\": ");
         output_measurements(mean_measurements, PAIRS(n), NULL);
 
+        uart_out(", \"var_measurements\": ");
+        output_measurements(var_measurements, PAIRS(n), NULL);
 
-        // first estimate antenna delays based on all known distances
+        // first estimate antenna delays based on all known distances WITHOUT filtering
         {
             memset(tof_known, 1, sizeof(tof_known));
             memset(delay_known, 0, sizeof(delay_known));
@@ -407,15 +437,21 @@ void estimate_all(uint16_t round) {
                 delays_out,
                 tofs_out,
                 mean_measurements,
+                var_measurements,
                 delay_known,
                 known_delays,
                 tof_known,
-                known_tofs
+                known_tofs,
+                0.0
             );
             estimate_duration = k_uptime_delta(&estimate_start);
 
             uart_out(", \"delays_from_measurements\": ");
             output_measurements(delays_out, n, NULL);
+
+            uart_out(", \"delays_from_measurements_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
         }
 
         // now use the new delays to infer the distances again -> should result in the same distances basically...
@@ -439,34 +475,132 @@ void estimate_all(uint16_t round) {
                 delays_out,
                 tofs_out,
                 mean_measurements,
+                var_measurements,
                 delay_known,
                 known_delays,
                 tof_known,
-                known_tofs
+                known_tofs,
+                0.0
             );
             estimate_duration = k_uptime_delta(&estimate_start);
 
             uart_out(", \"tofs_from_estimated_delays\": ");
             output_measurements(tofs_out, PAIRS(n), NULL);
 
-//             // log the resulting distances
-//              for(size_t a = 0; a < n; a++) {
-//                for(size_t b = 0; b < a; b++) {
-//                    if (a == b) {
-//                        continue;
-//                    }
-//
-//                    size_t pi = pair_index(a, b);
-//                    float32_t est = tofs_out[pi];
-//                    float32_t est_distance_in_m = est*SPEED_OF_LIGHT_M_PER_UWB_TU;
-//                    int est_cm = est_distance_in_m*100;
-//                    int actual_cm = known_tofs[pi]*SPEED_OF_LIGHT_M_PER_UWB_TU*100;
-//                    //LOG_DBG("Estimated cm %d, %d: %d (%d)", a, b, est_cm, actual_cm);
-//                }
-//            }
+            uart_out(", \"tofs_from_estimated_delays_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
         }
 
-        // now use the new delays to infer the distances again -> should result in the same distances basically...
+        // estimate antenna delays on all known distances WITH filtering
+        {
+            // reset values just to be sure
+            memset(delays_out, 0, sizeof(delays_out));
+            memset(tofs_out, 0, sizeof(tofs_out));
+
+            memset(tof_known, 1, sizeof(tof_known));
+            memset(delay_known, 0, sizeof(delay_known));
+
+            estimate_start = k_uptime_get();
+            estimate(
+                n,
+                delays_out,
+                tofs_out,
+                mean_measurements,
+                var_measurements,
+                delay_known,
+                known_delays,
+                tof_known,
+                known_tofs,
+                MAX_VAR_IN_M
+            );
+            estimate_duration = k_uptime_delta(&estimate_start);
+
+            uart_out(", \"delays_from_measurements_filtered\": ");
+            output_measurements(delays_out, n, NULL);
+
+            uart_out(", \"delays_from_measurements_filtered_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
+        }
+
+        // now use the Filtered delays to infer the distances again -> should result in the same distances basically...
+        {
+            // we now use the new delay values
+            for(int i = 0; i < n; i++) {
+                known_delays[i] = delays_out[i];
+            }
+             for(int p = 0; p < PAIRS(n); p++) {
+                // TODO: If we reorder, we have to be careful with those distances!
+                mean_measurements[p] = get_mean_measurement(p);
+                known_tofs[p] = node_distances[p] / SPEED_OF_LIGHT_M_PER_UWB_TU;
+            }
+
+            memset(tof_known, 0, sizeof(tof_known));
+            memset(delay_known, 1, sizeof(delay_known));
+
+            estimate_start = k_uptime_get();
+            estimate(
+                n,
+                delays_out,
+                tofs_out,
+                mean_measurements,
+                var_measurements,
+                delay_known,
+                known_delays,
+                tof_known,
+                known_tofs,
+                0.0
+            );
+            estimate_duration = k_uptime_delta(&estimate_start);
+
+            uart_out(", \"tofs_from_filtered_estimated_delays\": ");
+            output_measurements(tofs_out, PAIRS(n), NULL);
+
+            uart_out(", \"tofs_from_filtered_estimated_delays_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
+        }
+
+        // now use the Filtered delays to infer the distances again -> should result in the same distances basically...
+        {
+            // we now use the new delay values
+            for(int i = 0; i < n; i++) {
+                known_delays[i] = delays_out[i];
+            }
+             for(int p = 0; p < PAIRS(n); p++) {
+                // TODO: If we reorder, we have to be careful with those distances!
+                mean_measurements[p] = get_mean_measurement(p);
+                known_tofs[p] = node_distances[p] / SPEED_OF_LIGHT_M_PER_UWB_TU;
+            }
+
+            memset(tof_known, 0, sizeof(tof_known));
+            memset(delay_known, 1, sizeof(delay_known));
+
+            estimate_start = k_uptime_get();
+            estimate(
+                n,
+                delays_out,
+                tofs_out,
+                mean_measurements,
+                var_measurements,
+                delay_known,
+                known_delays,
+                tof_known,
+                known_tofs,
+                0.0
+            );
+            estimate_duration = k_uptime_delta(&estimate_start);
+
+            uart_out(", \"tofs_from_filtered_estimated_delays_filtered\": ");
+            output_measurements(tofs_out, PAIRS(n), NULL);
+
+            uart_out(", \"tofs_from_filtered_estimated_delays__filtered_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
+        }
+
+        // now use FACTORY delays to infer the distances again -> should result in the same distances basically...
         {
             // we now use the new delay values
             for(int i = 0; i < n; i++) {
@@ -487,17 +621,24 @@ void estimate_all(uint16_t round) {
                 delays_out,
                 tofs_out,
                 mean_measurements,
+                var_measurements,
                 delay_known,
                 known_delays,
                 tof_known,
-                known_tofs
+                known_tofs,
+                0.0
             );
             estimate_duration = k_uptime_delta(&estimate_start);
 
             uart_out(", \"tofs_from_factory_delays\": ");
             output_measurements(tofs_out, PAIRS(n), NULL);
 
+            uart_out(", \"tofs_from_factory_delays_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
+
         }
+
         // now use the new delays to infer the distances again -> should result in the same distances basically...
         {
             // we now use the new delay values
@@ -519,15 +660,21 @@ void estimate_all(uint16_t round) {
                 delays_out,
                 tofs_out,
                 mean_measurements,
+                var_measurements,
                 delay_known,
                 known_delays,
                 tof_known,
-                known_tofs
+                known_tofs,
+                0.0
             );
             estimate_duration = k_uptime_delta(&estimate_start);
 
             uart_out(", \"tofs_uncalibrated\": ");
             output_measurements(tofs_out, PAIRS(n), NULL);
+
+            uart_out(", \"tofs_uncalibrated_time\": ");
+            snprintf(buf, sizeof(buf), "%lld", estimate_duration);
+            uart_out(buf);
         }
         uart_out("}\n");
     }

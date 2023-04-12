@@ -225,6 +225,109 @@ def export_testbed_layouts(config, export_dir):
 
         plt.close()
 
+
+
+def export_overall_rmse_reduction(config, export_dir):
+
+    runs = {
+        'trento_a': 'job',  # [(6,3)],
+        'trento_b': 'job_with_one_est_at_end',
+        'lille': 'new_swapped'  # [(11,3), (10,3), (7,1), (5,0)],
+    }
+
+    src_devs = {
+        'trento_a': 'dwm1001.1',  # [(6,3)],
+        'trento_b': 'dwm1001.160',
+        'lille': 'dwm1001-1'  # [(11,3), (10,3), (7,1), (5,0)],
+    }
+
+    # we extract values for:
+    # uncalibrated, factory, calibrated_unfiltered, calibrated_filtered
+
+    errs = {}
+    ts = [trento_a, trento_b, lille]
+    groups = ['err_uncalibrated', 'err_factory', 'err_calibrated']
+
+    for (c, t) in enumerate(ts):
+        def proc():
+            est_df = pd.DataFrame.from_records(gen_estimations_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+
+            round = est_df['round'].max()
+
+            est_df = est_df[(est_df['round'] == round) & (est_df['mean_measurement'].notna())]
+            est_df['err_uncalibrated'] = est_df['est_distance_uncalibrated'] - est_df['dist']
+            est_df['err_factory'] = est_df['est_distance_factory'] - est_df['dist']
+            est_df['err_calibrated'] = est_df['est_distance_calibrated'] - est_df['dist']
+
+            return {
+                'err_uncalibrated': est_df['err_uncalibrated'].to_numpy(),
+                'err_factory': est_df['err_factory'].to_numpy(),
+                'err_calibrated': est_df['err_calibrated'].to_numpy()
+            }
+
+            # est_df['abs_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.abs)
+            # est_df['abs_err_factory'] = est_df['err_factory'].apply(np.abs)
+            # est_df['abs_err_calibrated'] = est_df['err_calibrated'].apply(np.abs)
+            #
+            # est_df['squared_err_uncalibrated'] = est_df['err_uncalibrated'].apply(np.square)
+            # est_df['squared_err_factory'] = est_df['err_factory'].apply(np.square)
+            # est_df['squared_err_calibrated'] = est_df['err_calibrated'].apply(np.square)
+            #
+            # # we determine the mean squared error of all pairs
+            #
+            # est_df = est_df[['pair', 'squared_err_uncalibrated', 'squared_err_factory', 'squared_err_calibrated']]
+            # res = est_df.aggregate(func=['mean'])
+            #
+            # return {
+            #     'rmse_uncalibrated': np.sqrt(res['squared_err_uncalibrated'][0]),
+            #     'rmse_factory': np.sqrt(res['squared_err_factory'][0]),
+            #     'rmse_calibrated': np.sqrt(res['squared_err_calibrated'][0])
+            # }
+
+        data = cached(('overall', t.name, runs[t.name], src_devs[t.name], 10), proc)
+        for k in data:
+            if k not in errs:
+                errs[k] = []
+            errs[k].append(data[k]*100)
+
+    def rmse(xs):
+        return np.sqrt(np.mean(np.square(np.array(xs)))), 0
+
+    stds = {}
+    for k in errs:
+        stds[k] = []
+        for (i, xs) in enumerate(errs[k]):
+            e, sd = rmse(xs)
+            errs[k][i] = e*100
+            stds[k].append(sd*100)
+
+    scenarios = ["Trento (7)", "Trento (14)", "IoT-Lab (14)"]
+
+    x = np.arange(len(scenarios))  # the label locations
+    width = 0.25  # the width of the bars
+    multiplier = 0
+
+    fig, ax = plt.subplots(layout='constrained')
+
+    labels = {
+        'err_uncalibrated': "Uncalibrated",
+        'err_factory': "Factory",
+        'err_calibrated': "Calibrated"
+    }
+
+    for attribute, measurement in errs.items():
+        offset = width * multiplier
+        rects = ax.bar(x + offset, measurement, width, label=labels[attribute], yerr=stds[attribute])
+        ax.bar_label(rects, fmt="{:.2f}", padding=3)
+        multiplier += 1
+
+    ax.set_ylabel('RMSE [cm]')
+    ax.set_xlabel('Scenario')
+    ax.set_xticks(x + width, scenarios)
+    ax.legend()
+    #ax.set_ylim(0, 250)
+
+    plt.show()
 #
 #
 # def export_sine_wave_example(config, export_dir):
@@ -358,7 +461,8 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
-        export_testbed_variance,
+        export_overall_rmse_reduction,
+        #export_testbed_variance,
         #export_testbed_layouts,
         #export_simulation_performance,
     ]

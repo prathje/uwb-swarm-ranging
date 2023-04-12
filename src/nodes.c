@@ -32,8 +32,6 @@ int8_t get_node_number(uint16_t node_id) {
     return -1;  //node number not found!
 }
 
-
-
 #define RANGE_CORR_MAX_RSSI (-61)
 #define RANGE_CORR_MIN_RSSI (-93)
 
