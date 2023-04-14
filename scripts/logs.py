@@ -229,23 +229,23 @@ def extract_delay_estimates(msg_iter, testbed, src_dev):
                 yield record
 
 
-def gen_measurements_from_testbed_run(testbed, run, src_dev=0):
+def gen_measurements_from_testbed_run(testbed, run, src_dev=None):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
     with open(logfile) as f:
         yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
 
 
-def gen_estimations_from_testbed_run(testbed, run, src_dev=0):
+def gen_estimations_from_testbed_run(testbed, run, src_dev=None):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
         yield from extract_estimations(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
 
-def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=0):
+def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
         yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
-
-
-from testbed import lille
-print(list(gen_delay_estimates_from_testbed_run(lille, run='job', src_dev='dwm1001-1')))
+#
+#
+# from testbed import trento_a
+# print(list(gen_delay_estimates_from_testbed_run(trento_a, run='job', src_dev=None)))

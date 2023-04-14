@@ -14,17 +14,19 @@ TESTBEDS = [
 ]
 
 
-def create_inference_matrix(n):
+def create_inference_matrix(n, ignored_pairs=None):
     X = np.zeros((int(n * (n - 1) / 2), n))
 
     row = 0
     for a in range(n):
         for b in range(n):
             if b < a:
-                X[row][a] = 1
-                X[row][b] = 1
+                if ignored_pairs and ((a,b) in ignored_pairs or (b,a) in ignored_pairs):
+                    pass
+                else:
+                    X[row][a] = 1
+                    X[row][b] = 1
                 row += 1
-
     B = np.matmul(np.linalg.inv(np.matmul(np.transpose(X), X)), np.transpose(X))
     return B
 
