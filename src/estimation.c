@@ -394,6 +394,17 @@ static void log_estimation(
      output_measurements(mean_measurements, EST_MAX_PAIRS, NULL);
      uart_out("{ \"var_measurements\": ");
      output_measurements(var_measurements, EST_MAX_PAIRS, NULL);
+
+     // we further log the standard deviations
+     float32_t std_measurements[EST_MAX_PAIRS];
+
+     for(int i = 0; i < EST_MAX_PAIRS; i++) {
+           std_measurements[i] = sqrt(var_measurements[i]);
+     }
+
+     uart_out("{ \"std_measurements\": ");
+     output_measurements(std_measurements, EST_MAX_PAIRS, NULL);
+
      uart_out(", \"delays_out\": ");
      output_measurements(delays_out, EST_MAX_NODES, NULL);
      uart_out(", \"tofs_out\": ");

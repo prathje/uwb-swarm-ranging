@@ -41,7 +41,7 @@ float32_t aggr_mean(int index) {
 }
 
 float32_t aggr_variance(int index) {
-    return aggr[index].M2  / (float32_t) (aggr[index].count - 1);
+    return aggr[index].M2  / (float32_t) (aggr[index].count);
 }
 
 void estimation_add_measurement(uint8_t a, uint8_t b, measurement_t val) {
