@@ -186,7 +186,7 @@ def export_measurements():
 
     with open(LOG_PATH) as f:
 
-        src_dev = devs[1]
+        src_dev = devs[0]
 
         meas_df = pandas.DataFrame.from_records(extract_measurements(parse_messages_from_lines(f, src_dev=src_dev)))
 

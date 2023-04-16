@@ -44,6 +44,7 @@ def load_plot_defaults():
     plt.rc('pdf', fonttype=42)
     plt.rc('ps', fonttype=42)
     plt.rc('font', size=11)
+    #plt.rc('font', size=8, family="serif", serif=['Times New Roman'] + plt.rcParams['font.serif'])
     plt.rcParams['axes.axisbelow'] = True
 
 
@@ -149,7 +150,7 @@ def export_testbed_variance(config, export_dir):
 
         ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
         ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
-        fig.set_size_inches(5.0, 5.0)
+        fig.set_size_inches(4.75, 4.75)
         plt.tight_layout()
 
         plt.savefig("{}/var_ma_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
@@ -641,7 +642,7 @@ def export_filter_rmse_reduction_trento_a(config, export_dir):
             errs[k][i] = e*100
             stds[k].append(sd*100)
 
-    scenarios = ["CLOVES-7", "IoT-Lab (14)"]
+    scenarios = ["CLOVES-7", "IoT-Lab-14"]
 
     x = np.arange(len(scenarios))  # the label locations
     width = 0.2  # the width of the bars
@@ -705,7 +706,7 @@ if __name__ == '__main__':
         export_filter_rmse_reduction_trento_a,
         export_testbed_layouts,
         export_testbed_variance,
-        #export_testbed_variance_from_device,
+        export_testbed_variance_from_device,
         export_overall_mae_reduction,
         export_overall_rmse_reduction,
         #export_testbed_layouts,

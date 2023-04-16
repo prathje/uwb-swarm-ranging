@@ -207,7 +207,6 @@ def extract_delay_estimates(msg_iter, testbed, src_dev):
                     record['factory_delays_diff'].append(record['delays_from_measurements_rounded'][i]-record['factory_delays'][i])
 
 
-
                 M = create_inference_matrix(len(testbed.devs))
 
                 measured = np.array([convert_logged_measurement(x) for x in msg['mean_measurements']])
@@ -245,7 +244,15 @@ def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
         yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
+
 #
+# from testbed import trento_a, trento_b, lille
 #
-# from testbed import trento_a
+# print("TRENTO A")
 # print(list(gen_delay_estimates_from_testbed_run(trento_a, run='job', src_dev=None)))
+#
+# print("TRENTO B")
+# print(list(gen_delay_estimates_from_testbed_run(trento_b, run='job', src_dev=None)))
+#
+# print("LILLE")
+# print(list(gen_delay_estimates_from_testbed_run(lille, run='job', src_dev=None)))
