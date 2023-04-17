@@ -169,12 +169,12 @@ def extract_estimations(msg_iter):
 
 
 #from testbed.lille import name, dev_positions, parse_messages_from_lines, devs
-from testbed.trento_a import name, dev_positions, parse_messages_from_lines, devs
+from testbed.trento_b import name, dev_positions, parse_messages_from_lines, devs
 
-LOG_FILE = "job"
+LOG_FILE = "job_fixed"
 
-LOG_PATH= "data/{}/{}.log".format(name, LOG_FILE)
-EXPORT_PATH= "export/{}/{}".format(name, LOG_FILE)
+LOG_PATH = "data/{}/{}.log".format(name, LOG_FILE)
+EXPORT_PATH = "export/{}/{}".format(name, LOG_FILE)
 
 import os
 os.makedirs(EXPORT_PATH, exist_ok = True)
@@ -194,28 +194,54 @@ def export_measurements():
 
         meas_df = meas_df[(meas_df['device'] == src_dev)]
 
-        meas_df = meas_df[(meas_df['round'] <= 1000)]
+        meas_df = meas_df[(meas_df['round'] <= 1200)]
 
         meas_df['offset'] = (meas_df['estimated_tof'] - meas_df['dist'])*100
 
         for i in range(0, len(devs)):
             d0 = devs[i]
 
-            for other in range(0, i):
-                if i == other:
-                    continue
+            # for other in range(0, i):
+            #     if i == other:
+            #         continue
+            #     df = meas_df
+            #     df = df[(df['initiator'] == other) & ((df['responder'] == i))]
+            #
+            #     ax = df.plot(kind='scatter', x='round', y='relative_drift_a', color='b', label='Init Rel. Drift',
+            #                  alpha=0.5, figsize=(20, 10))
+            #     ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_a_ci', color='c', label='Init Rel. Drift (CI)', alpha=0.5)
+            #     ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_b', color='r', label='Resp Rel. Drift', alpha=0.5)
+            #     ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_b_ci', color='y', label='Resp Rel. Drift (CI)', alpha=0.5)
+            #     print("Saving {}-{}".format(i, other))
+            #     plt.title("Rel. Drifts {}-{}".format(i, other))
+            #     plt.savefig("{}/measurements_rel_drifts_{}-{}.pdf".format(EXPORT_PATH, i, other))
+            #     plt.close()
+
+            for other in range(0, i-1):
                 df = meas_df
                 df = df[(df['initiator'] == other) & ((df['responder'] == i))]
 
-                ax = df.plot(kind='scatter', x='round', y='relative_drift_a', color='b', label='Init Rel. Drift',
-                             alpha=0.5, figsize=(20, 10))
-                ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_a_ci', color='c', label='Init Rel. Drift (CI)', alpha=0.5)
-                ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_b', color='r', label='Resp Rel. Drift', alpha=0.5)
-                ax = df.plot(ax=ax, kind='scatter', x='round', y='relative_drift_b_ci', color='y', label='Resp Rel. Drift (CI)', alpha=0.5)
+                ax = df.plot(kind='scatter', x='round', y='offset', color='C0',  label='{}-{}'.format(i+1, other+1), alpha=0.5, figsize=(5, 4), edgecolors='none')
+
+                plt.axhline(y=get_dist(dev_positions[d0], dev_positions[devs[other]]), color='b', linestyle='-')
+
+                #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_single', color='b', label='C (32 bit)')
+                #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_int_10', color='b', label='Python (Integer)')
                 print("Saving {}-{}".format(i, other))
-                plt.title("Rel. Drifts {}-{}".format(i, other))
-                plt.savefig("{}/measurements_rel_drifts_{}-{}.pdf".format(EXPORT_PATH, i, other))
+
+                plt.grid(color='lightgray', linestyle='dashed')
+
+                ax.set_ylabel('Offset [cm]')
+                ax.set_xlabel('Round')
+
+                plt.gcf().set_size_inches(5.0, 4.5)
+                plt.tight_layout()
+
+                #plt.title("Scatter {}-{}".format(i, other))
+                plt.savefig("{}/measurements_scatter_{}-{}.pdf".format(EXPORT_PATH, i, other))
+
                 plt.close()
+                #plt.show()
 
             for other in range(0, i-1):
                 df = meas_df
@@ -241,7 +267,7 @@ def export_measurements():
                 plt.tight_layout()
 
                 #plt.title("Scatter {}-{}".format(i, other))
-                plt.savefig("{}/measurements_scatter_{}-{}.pdf".format(EXPORT_PATH, i, other))
+                plt.savefig("{}/measurements_scatter_both_{}-{}.pdf".format(EXPORT_PATH, i, other))
 
                 plt.close()
                 #plt.show()

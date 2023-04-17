@@ -228,11 +228,11 @@ def extract_delay_estimates(msg_iter, testbed, src_dev):
                 yield record
 
 
-def gen_measurements_from_testbed_run(testbed, run, src_dev=None):
+def gen_measurements_from_testbed_run(testbed, run, src_dev=None, include_dummy=False):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
     with open(logfile) as f:
-        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
+        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, include_dummy=include_dummy)
 
 
 def gen_estimations_from_testbed_run(testbed, run, src_dev=None):

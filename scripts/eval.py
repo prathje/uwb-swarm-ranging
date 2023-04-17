@@ -25,9 +25,9 @@ c_in_air = 299702547.236
 
 
 runs = {
-        'trento_a': 'job',  # [(6,3)],
-        'trento_b': 'job',
-        'lille': 'job'  # [(11,3), (10,3), (7,1), (5,0)],
+        'trento_a': 'job_fixed',  # [(6,3)],
+        'trento_b': 'job_fixed',
+        'lille': 'job_fixed'  # [(11,3), (10,3), (7,1), (5,0)],
 }
 
 src_devs = {
@@ -561,7 +561,7 @@ def export_trento_a_pairs(config, export_dir):
 
 import testbed_to_c_vals
 
-def export_filter_rmse_reduction_trento_a(config, export_dir):
+def export_filtered_mae_reduction(config, export_dir):
 
 
     # we extract values for:
@@ -574,7 +574,7 @@ def export_filter_rmse_reduction_trento_a(config, export_dir):
     ignored_pair = {
         'trento_a': [(6,3)],
         'trento_b': [],
-        'lille': [(7,1)],
+        'lille': [(7,1), (4, 2)],
     }
 
     for (c, t) in enumerate(ts):
@@ -623,7 +623,7 @@ def export_filter_rmse_reduction_trento_a(config, export_dir):
             }
 
 
-        data = cached(('export_filter_rmse_reduction_trento_a', t.name, runs[t.name], src_devs[t.name], hash(json.dumps(ignored_pair)), 1), proc)
+        data = cached(('export_filtered_mae_reduction', t.name, runs[t.name], src_devs[t.name], hash(json.dumps(ignored_pair)), 1), proc)
         print(data)
         for k in data:
             if k not in errs:
@@ -684,10 +684,55 @@ def export_filter_rmse_reduction_trento_a(config, export_dir):
     fig.set_size_inches(5.5, 4.5)
 
     plt.tight_layout()
-    plt.savefig("{}/rmse_reduction_filtered.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.savefig("{}/mae_reduction_filtered.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
 
 
 
+def export_scatter_graph_trento_a(config, export_dir):
+
+    t = trento_a
+    src_dev = trento_a.devs[0]
+
+    meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_dev, include_dummy=True))
+    # we first plot the number of measurements for all pairs
+    meas_df = meas_df[(meas_df['device'] == src_dev)]
+
+    meas_df = meas_df[(meas_df['round'] <= 1200) & (meas_df['round'] > 200)]
+
+    meas_df['round'] = meas_df['round'] - 200
+
+    meas_df['offset'] = (meas_df['estimated_tof'] - meas_df['dist'])*100
+
+    initiator = 6
+    responder_a = 2
+    responder_b = 3
+
+    df = meas_df
+    df = df[(df['initiator'] == initiator) & ((df['responder'] == responder_a))]
+
+    df_b = meas_df[(meas_df['initiator'] == initiator) & ((meas_df['responder'] == responder_b))]
+
+    ax = df_b.plot(kind='scatter', x='round', y='offset', color='C0', label='{}-{}'.format( initiator+1, responder_b+1), alpha=0.5, figsize=(5, 4), edgecolors='none')
+    ax = df.plot(ax=ax, kind='scatter', x='round', y='offset', color='C1', label='{}-{}'.format(initiator+1, responder_a+1), alpha=0.5, edgecolors='none')
+
+    #plt.axhline(y=get_dist(dev_positions[d0], dev_positions[devs[other]]), color='b', linestyle='-')
+
+    #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_single', color='b', label='C (32 bit)')
+    #ax = df.plot(ax=ax, kind='scatter', x='round', y='calculated_tof_int_10', color='b', label='Python (Integer)')
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.legend(loc='upper left')
+
+    ax.set_ylabel('Offset [cm]')
+    ax.set_xlabel('Round')
+
+    plt.gcf().set_size_inches(5.0, 4.5)
+    plt.tight_layout()
+
+    #plt.title("Scatter {}-{}".format(i, other))
+    plt.savefig("{}/measurements_scatter_trento_a.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.close()
 
 if __name__ == '__main__':
 
@@ -701,9 +746,10 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
+        export_scatter_graph_trento_a,
         export_trento_a_pairs,
         export_simulation_performance,
-        export_filter_rmse_reduction_trento_a,
+        export_filtered_mae_reduction,
         export_testbed_layouts,
         export_testbed_variance,
         export_testbed_variance_from_device,
