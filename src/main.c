@@ -242,7 +242,7 @@ void on_round_end(uint16_t round_number) {
 
                 measurement_t tof_in_uwb_us = ((float) two_tof_int) * 0.5;
 
-                if (dummy){
+                if (!dummy){
                     estimation_add_measurement(a, b, tof_in_uwb_us);
                 }
 
