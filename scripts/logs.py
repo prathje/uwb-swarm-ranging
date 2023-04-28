@@ -152,7 +152,7 @@ def extract_estimations(msg_iter, testbed, src_dev):
 
                     msg = estimations.get((d, r), None)
 
-                    print(pi, len(msg['mean_measurements']))
+                    #print(pi, len(msg['mean_measurements']))
                     if msg is not None and pi < len(msg['mean_measurements']):
                         record['mean_measurement'] = convert_ts_to_m(convert_logged_measurement(msg['mean_measurements'][pi]))
 
@@ -181,7 +181,7 @@ def extract_estimations(msg_iter, testbed, src_dev):
                     yield record
 
 
-def extract_delay_estimates(msg_iter, testbed, src_dev):
+def extract_delay_estimates(msg_iter, testbed, src_dev, ignore_pairs=[]):
     rounds, estimations = extract_types(msg_iter, ['estimation'])
     for r in rounds:
         for d in testbed.devs:
@@ -189,7 +189,6 @@ def extract_delay_estimates(msg_iter, testbed, src_dev):
                 continue  # we skip as we do not have this data anyway!
 
             msg = estimations.get((d, r), None)
-            print(rounds)
 
             if msg:
                 record = {}
@@ -206,8 +205,7 @@ def extract_delay_estimates(msg_iter, testbed, src_dev):
                     record['factory_delays'].append(testbed.factory_delays[d]-16450)
                     record['factory_delays_diff'].append(record['delays_from_measurements_rounded'][i]-record['factory_delays'][i])
 
-
-                M = create_inference_matrix(len(testbed.devs))
+                M = create_inference_matrix(len(testbed.devs), ignored_pairs=ignore_pairs)
 
                 measured = np.array([convert_logged_measurement(x) for x in msg['mean_measurements']])
 
@@ -218,12 +216,14 @@ def extract_delay_estimates(msg_iter, testbed, src_dev):
                         if a > b:
                             actual[pair_index(a,b)] = convert_m_to_ts(get_dist(testbed.dev_positions[da], testbed.dev_positions[db]))
 
-                diffs =  measured - actual
+                diffs = measured - actual
 
                 record['python_delays'] = np.matmul(M, 2*diffs)
                 record['python_delays_rounded'] = [round(x) for x in record['python_delays']]
 
                 record['python_delays_diff'] = record['python_delays_rounded']-np.array(record['factory_delays'])
+                record['mse'] = np.sqrt(np.mean(np.square(record['python_delays_diff'])))
+                record['mae'] = np.mean(np.abs(record['python_delays_diff']))
 
                 yield record
 
@@ -240,19 +240,30 @@ def gen_estimations_from_testbed_run(testbed, run, src_dev=None):
     with open(logfile) as f:
         yield from extract_estimations(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
 
-def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None):
+def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pairs=[]):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
-        yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
+        yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, ignore_pairs=ignore_pairs)
 
-#
-# from testbed import trento_a, trento_b, lille
-#
-# print("TRENTO A")
-# print(list(gen_delay_estimates_from_testbed_run(trento_a, run='job', src_dev=None)))
-#
-# print("TRENTO B")
-# print(list(gen_delay_estimates_from_testbed_run(trento_b, run='job', src_dev=None)))
-#
-# print("LILLE")
-# print(list(gen_delay_estimates_from_testbed_run(lille, run='job', src_dev=None)))
+from testbed import trento_a, trento_b, lille
+
+print("TRENTO A All Pairs")
+res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
+print(res['mae'])
+
+print("TRENTO B All Pairs")
+res = list(gen_delay_estimates_from_testbed_run(trento_b, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
+print(res['mae'])
+
+print("LILLE All Pairs")
+res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
+print(res['mae'])
+
+
+print("TRENTO A Filtered")
+res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[(6,3)]))[0]
+print(res['mae'])
+
+print("LILLE Filtered")
+res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[(7,1), (4, 2)]))[0]
+print(res['mae'])
