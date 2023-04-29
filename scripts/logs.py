@@ -250,6 +250,7 @@ from testbed import trento_a, trento_b, lille
 print("TRENTO A All Pairs")
 res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
 print(res['mae'])
+trento_a_unfiltered = res
 
 print("TRENTO B All Pairs")
 res = list(gen_delay_estimates_from_testbed_run(trento_b, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
@@ -259,11 +260,25 @@ print("LILLE All Pairs")
 res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
 print(res['mae'])
 
-
 print("TRENTO A Filtered")
 res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[(6,3)]))[0]
 print(res['mae'])
+trento_a_filtered = res
 
 print("LILLE Filtered")
 res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[(7,1), (4, 2)]))[0]
 print(res['mae'])
+
+
+
+exp = trento_a_unfiltered
+
+for i in range(0, 7):
+    est = exp['delays_from_measurements_rounded'][i]*0.47
+    fact = exp['factory_delays'][i]*0.47
+    diff = est-fact
+    print("{} & {:2.2f} & {:2.2f} & {:2.2f} \\\\ \\hline".format(i+1, est, fact, diff))
+
+
+
+#1 & XX & 10.34 & XX \\  \hline
