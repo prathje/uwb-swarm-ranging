@@ -243,13 +243,14 @@ def export_testbed_layouts(config, export_dir):
     }
 
     limits = {
-        'lille': [None, 10.5, None, 22.5],
-        'trento_a': [None, 80, None, 7.5],
+        'lille': [0, 10.5, 29, 22.5],
+        'trento_a': [71, 81, -1.25, 8.5],
+        #'trento_a': [None, 85, None, 10.5],
         'trento_b': [None, 132, None, 7.5]
     }
 
 
-    for (c,t) in enumerate([trento_a, trento_b, lille]):
+    for (c,t) in enumerate([trento_a]):
         ys = []
         xs = []
         ns = []
@@ -264,8 +265,10 @@ def export_testbed_layouts(config, export_dir):
         plt.clf()
 
 
+
         fig, ax = plt.subplots()
 
+        t.draw_layout(plt)
 
         ax.scatter(xs, ys, color='C'+str(c), marker='o')
         ax.set_aspect('equal', adjustable='box')
@@ -295,7 +298,8 @@ def export_testbed_layouts(config, export_dir):
         fig.set_size_inches(4.0, 3.5)
         plt.tight_layout()
 
-        plt.savefig("{}/layout_{}.pdf".format(export_dir, t.name),bbox_inches = 'tight', pad_inches = 0)
+        plt.show()
+        plt.savefig("{}/layout_{}.pdf".format(export_dir, t.name),bbox_inches = 'tight', pad_inches = 0, dpi=600)
 
         plt.close()
 
@@ -401,6 +405,7 @@ def export_overall_rmse_reduction(config, export_dir):
     ax.set_ylim(0, 20)
 
     plt.tight_layout()
+
     plt.savefig("{}/rmse_comparison.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
 
 
@@ -746,16 +751,15 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
-        export_scatter_graph_trento_a,
-        export_trento_a_pairs,
-        export_simulation_performance,
-        export_filtered_mae_reduction,
         export_testbed_layouts,
-        export_testbed_variance,
-        export_testbed_variance_from_device,
-        export_overall_mae_reduction,
-        export_overall_rmse_reduction,
-        #export_testbed_layouts,
+        # export_scatter_graph_trento_a,
+        # export_trento_a_pairs,
+        # export_simulation_performance,
+        # export_filtered_mae_reduction,
+        # export_testbed_variance,
+        # export_testbed_variance_from_device,
+        # export_overall_mae_reduction,
+        # export_overall_rmse_reduction,
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):

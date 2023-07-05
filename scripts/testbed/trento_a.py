@@ -77,3 +77,81 @@ def parse_messages_from_lines(line_it, src_dev=None):
                 pass
         except ValueError:
             pass
+
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib.offsetbox import (OffsetImage, AnnotationBbox)
+
+import numpy as np
+from PIL import Image
+
+def draw_layout(plt):
+
+
+
+    lineargs = {
+        "color": "black",
+        #"alpha": 0.5,
+        "lw": 1.5,
+        "zorder": -1,
+    }
+
+    rectargs = {
+        "facecolor": "white",
+        "edgecolor": "black",
+        #"alpha": 0.5,
+        "lw": 1.5,
+        "zorder": -1,
+    }
+
+    npimage = np.flip(np.asarray(Image.open('img/trento_a.png')), axis=0)
+    scalingx = 0.01295
+    scalingy = 0.0134
+    tx = 72-0.561
+    ty = -1.5+1.024-0.535
+
+
+    lines = [
+        ((70.0, 2.45), (72.16, 2.45)),
+        ((72.16, 2.45), (72.16, 8.5)),
+        ((72.16, 6.37), (70.0, 6.37)),
+        ((72.16, 7.41), (70.0, 7.41)),
+        ((74.72, 7.41), (74.72, 8.5)),
+        ((74.72, 7.41), (78.27, 7.41)),
+        ((78.27, 7.41), (78.27, 8.5)),
+        ((80.0, 8.5), (80.0, 6.96)),
+        ((80.0, 5.69), (80.0, 3.82)),
+        ((80.0, 2.578), (80.0, 1.119)),
+        ((80.0, -0.07), (80.0, -0.65)),
+        ((80.0, -0.65), (82.0, -0.65)),
+        ((80.0, 1.86), (82.0, 1.86)),
+        ((80.0, 4.52), (82.0, 4.52)),
+        ((80.0, 7.66), (82.0, 7.66)),
+        ((70.0, -0.07), (72.43, -0.07)),
+        ((74.48, -0.07), (74.72, -0.07)),
+        ((74.72, -0.07), (74.72, -1.5)),
+    ]
+
+    rects = [
+        ((71.73, 8.0), (72.16, 7.41)),
+        ((74.72, 8.0), (75.35, 7.41)),
+        ((74.72, -0.07), (75.35, -0.7))
+    ]
+
+    #plt.gca().imshow(npimage, origin="lower", extent=(tx, tx + npimage.shape[0]*scalingx, ty, ty + npimage.shape[1]*scalingy), zorder=-1)
+
+    for (f, t) in lines:
+        plt.plot([f[0], t[0]], [f[1], t[1]], **lineargs)
+
+    for (ul, lr) in rects:
+        width = lr[0]-ul[0]
+        height = lr[1]-ul[1]
+        plt.gca().add_patch(
+            Rectangle((ul[0], ul[1]), width, height, **rectargs)
+        )
+
+
+
+

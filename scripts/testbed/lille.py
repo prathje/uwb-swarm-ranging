@@ -112,3 +112,53 @@ def parse_messages_from_lines(line_it, src_dev=None):
                 pass
         except ValueError:
             pass
+
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib.offsetbox import (OffsetImage, AnnotationBbox)
+
+import numpy as np
+from PIL import Image
+
+
+def draw_layout(plt):
+
+
+
+    lineargs = {
+        "color": "black",
+        #"alpha": 0.5,
+        "lw": 1.5,
+        "zorder": -1,
+    }
+
+    rectargs = {
+        "facecolor": "white",
+        "edgecolor": "black",
+        #"alpha": 0.5,
+        "lw": 1.5,
+        "zorder": -1,
+    }
+
+    pillar_size = 0.25
+    npimage = np.flip(np.asarray(Image.open('img/lille.png')), axis=0)
+    scalingx = 0.0325
+    scalingy = 0.027
+    tx = dev_positions['dwm1001-1'][0]-0.02
+    ty = dev_positions['dwm1001-1'][1]-0.02
+
+
+    #plt.gca().imshow(npimage, origin="upper", extent=(tx, tx + npimage.shape[0]*scalingx, ty, ty + npimage.shape[1]*scalingy), zorder=-1)
+
+    plt.plot([dev_positions['dwm1001-1'][0], dev_positions['dwm1001-1'][0]], [22, 32], **lineargs)
+    plt.plot([dev_positions['dwm1001-12'][0], dev_positions['dwm1001-12'][0]], [22, dev_positions['dwm1001-14'][1]+0.25], **lineargs)
+    plt.plot([dev_positions['dwm1001-14'][0], 12.0], [dev_positions['dwm1001-14'][1]+0.25, dev_positions['dwm1001-14'][1]+0.25], **lineargs)
+
+    plt.gca().add_patch(Rectangle((dev_positions['dwm1001-1'][0]-pillar_size*0.5, dev_positions['dwm1001-1'][1]-pillar_size), pillar_size, pillar_size, **rectargs))
+    plt.gca().add_patch(Rectangle((0.375-pillar_size, 28.437-pillar_size), pillar_size, pillar_size, **rectargs))
+    plt.gca().add_patch(Rectangle((5.50,     28.17), pillar_size, pillar_size, **rectargs))
+    plt.gca().add_patch(Rectangle((5.50,     dev_positions['dwm1001-1'][1]-pillar_size), pillar_size, pillar_size, **rectargs))
+
+
