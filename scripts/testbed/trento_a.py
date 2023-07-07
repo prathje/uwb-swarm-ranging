@@ -106,11 +106,12 @@ def draw_layout(plt):
         "zorder": -1,
     }
 
-    npimage = np.flip(np.asarray(Image.open('img/trento_a.png')), axis=0)
-    scalingx = 0.01295
-    scalingy = 0.0134
-    tx = 72-0.561
-    ty = -1.5+1.024-0.535
+    # npimage = np.flip(np.asarray(Image.open('img/trento_a.png')), axis=0)
+    # scalingx = 0.01295
+    # scalingy = 0.0134
+    # tx = 72-0.561
+    # ty = -1.5+1.024-0.535
+    #plt.gca().imshow(npimage, origin="lower", extent=(tx, tx + npimage.shape[0]*scalingx, ty, ty + npimage.shape[1]*scalingy), zorder=-1)
 
 
     lines = [
@@ -140,7 +141,6 @@ def draw_layout(plt):
         ((74.72, -0.07), (75.35, -0.7))
     ]
 
-    #plt.gca().imshow(npimage, origin="lower", extent=(tx, tx + npimage.shape[0]*scalingx, ty, ty + npimage.shape[1]*scalingy), zorder=-1)
 
     for (f, t) in lines:
         plt.plot([f[0], t[0]], [f[1], t[1]], **lineargs)

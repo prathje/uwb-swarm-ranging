@@ -143,14 +143,14 @@ def draw_layout(plt):
     }
 
     pillar_size = 0.25
-    npimage = np.flip(np.asarray(Image.open('img/lille.png')), axis=0)
-    scalingx = 0.0325
-    scalingy = 0.027
-    tx = dev_positions['dwm1001-1'][0]-0.02
-    ty = dev_positions['dwm1001-1'][1]-0.02
+    # npimage = np.flip(np.asarray(Image.open('img/lille.png')), axis=0)
+    # scalingx = 0.0325
+    # scalingy = 0.027
+    # tx = dev_positions['dwm1001-1'][0]-0.02
+    # ty = dev_positions['dwm1001-1'][1]-0.02
 
-
-    #plt.gca().imshow(npimage, origin="upper", extent=(tx, tx + npimage.shape[0]*scalingx, ty, ty + npimage.shape[1]*scalingy), zorder=-1)
+    # the axes might be wrong here!
+    # plt.gca().imshow(npimage, origin="upper", extent=(tx, tx + npimage.shape[0]*scalingx, ty, ty + npimage.shape[1]*scalingy), zorder=-1)
 
     plt.plot([dev_positions['dwm1001-1'][0], dev_positions['dwm1001-1'][0]], [22, 32], **lineargs)
     plt.plot([dev_positions['dwm1001-12'][0], dev_positions['dwm1001-12'][0]], [22, dev_positions['dwm1001-14'][1]+0.25], **lineargs)
@@ -158,7 +158,7 @@ def draw_layout(plt):
 
     plt.gca().add_patch(Rectangle((dev_positions['dwm1001-1'][0]-pillar_size*0.5, dev_positions['dwm1001-1'][1]-pillar_size), pillar_size, pillar_size, **rectargs))
     plt.gca().add_patch(Rectangle((0.375-pillar_size, 28.437-pillar_size), pillar_size, pillar_size, **rectargs))
-    plt.gca().add_patch(Rectangle((5.50,     28.17), pillar_size, pillar_size, **rectargs))
-    plt.gca().add_patch(Rectangle((5.50,     dev_positions['dwm1001-1'][1]-pillar_size), pillar_size, pillar_size, **rectargs))
+    plt.gca().add_patch(Rectangle((5.50, 28.17), pillar_size, pillar_size, **rectargs))
+    plt.gca().add_patch(Rectangle((5.50, dev_positions['dwm1001-1'][1]-pillar_size), pillar_size, pillar_size, **rectargs))
 
 

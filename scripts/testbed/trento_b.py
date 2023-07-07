@@ -106,3 +106,64 @@ def parse_messages_from_lines(line_it, src_dev=None):
                 pass
         except ValueError:
             pass
+
+
+
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib.offsetbox import (OffsetImage, AnnotationBbox)
+
+import numpy as np
+from PIL import Image
+
+def draw_layout(plt):
+
+    lineargs = {
+        "color": "black",
+        #"alpha": 0.5,
+        "lw": 1.5,
+        "zorder": -1,
+    }
+
+    rectargs = {
+        "facecolor": "white",
+        "edgecolor": "black",
+        #"alpha": 0.5,
+        "lw": 1.5,
+        "zorder": -1,
+    }
+
+    # npimage = np.flip(np.asarray(Image.open('img/trento_b.png')), axis=0)
+    # scalingx = 0.013
+    # scalingy = scalingx
+    # tx = 119.11-0.561-0.824
+    # ty = -0.535+0.35-0.09
+    #plt.gca().imshow(npimage, origin="lower", extent=(tx, tx + npimage.shape[1]*scalingx, ty, ty + npimage.shape[0]*scalingy), zorder=-1)
+
+
+    lines = [
+        ((119.647, 7.19), (130.69, 7.19)),
+        ((130.69, 7.19), (130.69, 4.09)),
+        ((130.69, 4.7), (132.0, 4.7)),
+        ((130.69, 2.87), (130.69, -0.3)),
+        ((130.69, 2.24), (132.0, 2.24)),
+        ((130.69, -0.3), (119.647, -0.3))
+    ]
+
+    rects = [
+        ((119.0, 0.0), (119.647, -0.55)),
+        ((119.0, 7.5), (119.647, 6.947))
+    ]
+
+
+    for (f, t) in lines:
+        plt.plot([f[0], t[0]], [f[1], t[1]], **lineargs)
+
+    for (ul, lr) in rects:
+        width = lr[0]-ul[0]
+        height = lr[1]-ul[1]
+        plt.gca().add_patch(
+            Rectangle((ul[0], ul[1]), width, height, **rectargs)
+        )

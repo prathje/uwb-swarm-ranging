@@ -243,14 +243,13 @@ def export_testbed_layouts(config, export_dir):
     }
 
     limits = {
-        'lille': [0, 10.5, 29, 22.5],
+        'lille': [-0.5, 10.0, 29, 22.5],
         'trento_a': [71, 81, -1.25, 8.5],
-        #'trento_a': [None, 85, None, 10.5],
-        'trento_b': [None, 132, None, 7.5]
+        'trento_b': [118.5, 131.5, -1, 8.0]
     }
 
 
-    for (c,t) in enumerate([trento_a]):
+    for (c,t) in enumerate([lille, trento_a, trento_b]):
         ys = []
         xs = []
         ns = []
@@ -284,7 +283,7 @@ def export_testbed_layouts(config, export_dir):
 
 
         for i, txt in enumerate(ns):
-            ax.annotate(txt, (xs[i], ys[i]), xytext=(3, 0), textcoords='offset points', va='center', ha='left')
+            ax.annotate(txt, (xs[i], ys[i]), xytext=(-3, 0), textcoords='offset points', va='center', ha='right')
 
         ax.set_axisbelow(True)
         ax.set_xlabel("Position X [m]")
@@ -298,7 +297,7 @@ def export_testbed_layouts(config, export_dir):
         fig.set_size_inches(4.0, 3.5)
         plt.tight_layout()
 
-        plt.show()
+        #plt.show()
         plt.savefig("{}/layout_{}.pdf".format(export_dir, t.name),bbox_inches = 'tight', pad_inches = 0, dpi=600)
 
         plt.close()
