@@ -24,7 +24,7 @@ COLOR_MAP = 'tab10'
 c_in_air = 299702547.236
 
 
-PROTOCOL_NAME = "ALADIN"
+PROTOCOL_NAME = "ALADIn"
 
 
 runs = {
