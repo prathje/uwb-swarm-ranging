@@ -1,6 +1,6 @@
-# UWB Swarm Ranging
+# ALADIN: All-to-all Linear Antenna Delay Inference\\on Ultra-Wideband Devices
 
-This project contains the PoC for Ultra-Wideband ranging using a single, broadcast message for simultaneous rangings to all other devices.
+This project contains the PoC for ALADIN: All-to-all Linear Antenna Delay Inference on Ultra-Wideband Devices. It is currently under revision and clean-up.
 
 
 ## Setup

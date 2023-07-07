@@ -24,6 +24,9 @@ COLOR_MAP = 'tab10'
 c_in_air = 299702547.236
 
 
+PROTOCOL_NAME = "ALADIN"
+
+
 runs = {
         'trento_a': 'job_fixed',  # [(6,3)],
         'trento_b': 'job_fixed',
@@ -63,13 +66,13 @@ def export_simulation_performance(config, export_dir):
     df = pd.DataFrame(data_rows)
 
     # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-    df = df.rename(columns={"gn_mean": "Gauss-Newton", "tdoa_mean": "TDoA", "our_mean": "Proposed"})
+    df = df.rename(columns={"gn_mean": "Gauss-Newton", "tdoa_mean": "TDoA", "our_mean": PROTOCOL_NAME})
 
     stds = [df['tdoa_std'], df['gn_std'], df['our_std']]
 
     plt.clf()
 
-    ax = df.plot.bar(x='num_measurements', y=['TDoA', 'Gauss-Newton', 'Proposed'], yerr=stds, width=0.8)
+    ax = df.plot.bar(x='num_measurements', y=['TDoA', 'Gauss-Newton', PROTOCOL_NAME], yerr=stds, width=0.8)
 
 
     plt.ylim(0.0, 14.0)
@@ -387,7 +390,7 @@ def export_overall_rmse_reduction(config, export_dir):
     labels = {
         'err_uncalibrated': "Uncalibrated",
         'err_factory': "Factory",
-        'err_calibrated': "Proposed"
+        'err_calibrated': PROTOCOL_NAME
     }
 
     for attribute, measurement in errs.items():
@@ -488,7 +491,7 @@ def export_overall_mae_reduction(config, export_dir):
     labels = {
         'err_uncalibrated': "Uncalibrated",
         'err_factory': "Factory",
-        'err_calibrated': "Proposed",
+        'err_calibrated': PROTOCOL_NAME,
         #'err_calibrated_filtered': "Calibrated Filtered",
     }
 
@@ -537,7 +540,7 @@ def export_trento_a_pairs(config, export_dir):
 
         est_df['Uncalibrated'] = (est_df['est_distance_uncalibrated'] - est_df['dist'])*100
         est_df['Factory'] = (est_df['est_distance_factory'] - est_df['dist'])*100
-        est_df["Proposed"] = (est_df['est_distance_calibrated'] - est_df['dist'])*100
+        est_df[PROTOCOL_NAME] = (est_df['est_distance_calibrated'] - est_df['dist'])*100
 
         est_df = est_df.sort_values(by='Uncalibrated')
 
@@ -547,7 +550,7 @@ def export_trento_a_pairs(config, export_dir):
         est_df['pair'] = est_df.apply(rename_pairs, axis=1)
 
         # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-        est_df.plot.bar(x='pair', y=['Uncalibrated', 'Factory', "Proposed"], width=0.75)
+        est_df.plot.bar(x='pair', y=['Uncalibrated', 'Factory', PROTOCOL_NAME], width=0.75)
 
         plt.legend()
         plt.xlabel("Pair")
@@ -659,8 +662,8 @@ def export_filtered_mae_reduction(config, export_dir):
     labels = {
         'err_uncalibrated': "Uncalibrated",
         'err_factory': "Factory",
-        'err_calibrated': "Prop. Unfiltered",
-        'err_calibrated_filtered': "Prop. Filtered",
+        'err_calibrated': PROTOCOL_NAME +" Unfiltered",
+        'err_calibrated_filtered': PROTOCOL_NAME + " Filtered",
     }
 
     colors = ['C0', 'C1', 'C2', 'C3']
@@ -751,14 +754,14 @@ if __name__ == '__main__':
 
     steps = [
         export_testbed_layouts,
-        # export_scatter_graph_trento_a,
-        # export_trento_a_pairs,
-        # export_simulation_performance,
-        # export_filtered_mae_reduction,
-        # export_testbed_variance,
-        # export_testbed_variance_from_device,
-        # export_overall_mae_reduction,
-        # export_overall_rmse_reduction,
+        export_scatter_graph_trento_a,
+        export_trento_a_pairs,
+        export_simulation_performance,
+        export_filtered_mae_reduction,
+        export_testbed_variance,
+        export_testbed_variance_from_device,
+        export_overall_mae_reduction,
+        export_overall_rmse_reduction,
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):
