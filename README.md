@@ -1,4 +1,4 @@
-# ALADIN: All-to-all Linear Antenna Delay Inference\\on Ultra-Wideband Devices
+# ALADIN: All-to-all Linear Antenna Delay Inference on Ultra-Wideband Devices
 
 This project contains the PoC for ALADIN: All-to-all Linear Antenna Delay Inference on Ultra-Wideband Devices. It is currently under revision and clean-up.
 
