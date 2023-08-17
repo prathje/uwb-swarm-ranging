@@ -80,6 +80,8 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
                     record['estimated_tof'] = None
                     record['round_dur'] = None
                     record['response_dur'] = None
+                    record['tdoa_m'] = None
+                    record['estimated_tdoa'] = None
 
                     if msg is not None and pi < len(msg['measurements']) and msg['measurements'][pi] is not None:
                         record['round_dur'] = msg['measurements'][pi][0]
@@ -87,6 +89,12 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
 
                         if msg['measurements'][pi][2] is not None:
                             record['estimated_tof'] = convert_ts_to_m(convert_logged_measurement(msg['measurements'][pi][2]))
+
+                        if len(msg['measurements'][pi]) >= 7 and msg['measurements'][pi][4] != 0:
+                            record['tdoa_m'] = msg['measurements'][pi][4]
+                            record['estimated_tdoa'] = convert_ts_to_m(convert_logged_measurement(msg['measurements'][pi][5]))
+
+                    print(record['estimated_tdoa'])
 
                     msg = drift_estimations.get((d, r), None)
                     record['own_dur_a'] = None
@@ -119,6 +127,7 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
                                 record['relative_drift_b'] = float(record['own_dur_b']) / float(record['other_dur_b'])
 
                     record['calculated_tof'] = None
+
                     if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur']]:
                         record['calculated_tof'] = convert_ts_to_m(record['relative_drift_a'] *record['round_dur'] - record['relative_drift_b'] * record['response_dur'])*0.5
 
@@ -244,40 +253,40 @@ def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pair
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
         yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, ignore_pairs=ignore_pairs)
-
-from testbed import trento_a, trento_b, lille
-
-print("TRENTO A All Pairs")
-res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
-print(res['mae'])
-trento_a_unfiltered = res
-
-print("TRENTO B All Pairs")
-res = list(gen_delay_estimates_from_testbed_run(trento_b, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
-print(res['mae'])
-
-print("LILLE All Pairs")
-res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
-print(res['mae'])
-
-print("TRENTO A Filtered")
-res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[(6,3)]))[0]
-print(res['mae'])
-trento_a_filtered = res
-
-print("LILLE Filtered")
-res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[(7,1), (4, 2)]))[0]
-print(res['mae'])
-
-
-
-exp = trento_a_unfiltered
-
-for i in range(0, 7):
-    est = exp['delays_from_measurements_rounded'][i]*0.47
-    fact = exp['factory_delays'][i]*0.47
-    diff = est-fact
-    print("{} & {:2.2f} & {:2.2f} & {:2.2f} \\\\ \\hline".format(i+1, est, fact, diff))
+# TODO comment in!
+# from testbed import trento_a, trento_b, lille
+#
+# print("TRENTO A All Pairs")
+# res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
+# print(res['mae'])
+# trento_a_unfiltered = res
+#
+# print("TRENTO B All Pairs")
+# res = list(gen_delay_estimates_from_testbed_run(trento_b, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
+# print(res['mae'])
+#
+# print("LILLE All Pairs")
+# res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[]))[0]
+# print(res['mae'])
+#
+# print("TRENTO A Filtered")
+# res = list(gen_delay_estimates_from_testbed_run(trento_a, run='job_fixed', src_dev=None, ignore_pairs=[(6,3)]))[0]
+# print(res['mae'])
+# trento_a_filtered = res
+#
+# print("LILLE Filtered")
+# res = list(gen_delay_estimates_from_testbed_run(lille, run='job_fixed', src_dev=None, ignore_pairs=[(7,1), (4, 2)]))[0]
+# print(res['mae'])
+#
+#
+#
+# exp = trento_a_unfiltered
+#
+# for i in range(0, 7):
+#     est = exp['delays_from_measurements_rounded'][i]*0.47
+#     fact = exp['factory_delays'][i]*0.47
+#     diff = est-fact
+#     print("{} & {:2.2f} & {:2.2f} & {:2.2f} \\\\ \\hline".format(i+1, est, fact, diff))
 
 
 

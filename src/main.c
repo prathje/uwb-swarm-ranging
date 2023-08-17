@@ -88,6 +88,17 @@ static inline uint64_t ts_to_uint(const ts_t *ts) {
     return sys_get_le64(buf);
 }
 
+static void log_mem(char *src, size_t s) {
+
+    char buf[8];
+    for(size_t i = 0; i < s; i++){
+        snprintf(buf, sizeof(buf), "%02hhX", (*src) & 0xff);
+        LOG_RAW_CMD(buf);
+        src++;
+    }
+}
+
+
 static inline uint64_t get_uint_duration(const ts_t *end_ts, const ts_t *start_ts){
 
     uint64_t end = ts_to_uint(end_ts);
@@ -125,6 +136,7 @@ void on_round_end(uint16_t round_number) {
     // last_msg contains all messages of the previous round
 
     // we cleanup invalid values first
+
      for(int i = 0; i < NUM_NODES; i++) {
         if(last_msg[i].round != round_number - 1) {
             memset(&last_msg[i], 0, sizeof(last_msg[i]));
@@ -152,7 +164,7 @@ void on_round_end(uint16_t round_number) {
        LOG_RAW_CMD("{\"type\": \"drift_estimation\", \"dummy\": false, ");
     }
 
-   char buf[256];
+   char buf[512];
    snprintf(buf, sizeof(buf), "\"round\": %hu, \"durations\": [", round_number);
     LOG_RAW_CMD(buf);
 
@@ -207,6 +219,7 @@ void on_round_end(uint16_t round_number) {
 
    LOG_RAW_CMD("]}\n");
 
+
      if (dummy){
         LOG_RAW_CMD("{\"type\": \"raw_measurements\", \"dummy\": true, ");
      }
@@ -225,11 +238,31 @@ void on_round_end(uint16_t round_number) {
             uint64_t round_dur_a = 0;
             uint64_t delay_dur_b = 0;
 
-            round_dur_a = get_uint_duration(&cur_msg[a].rx_ts[b], &last_msg[a].tx_ts);
+            // For TDoa
+            uint64_t tdoa_m_dur = 0; // This duration is a bit tricky to get right!
+
 
             if (a < b) {// TODO: this is automatically given as of right now
                 // the response delay of b should be in the last_msg as well
                 delay_dur_b = get_uint_duration(&last_msg[b].tx_ts, &last_msg[b].rx_ts[a]);
+                round_dur_a = get_uint_duration(&cur_msg[a].rx_ts[b], &last_msg[a].tx_ts);
+
+                // Handle TDoA extraction
+                {
+                    if (own_number < a) {
+                        // we sent before a (and also b), hence, we need to extract the reception values from the current round
+                        tdoa_m_dur = get_uint_duration(&cur_msg[own_number].rx_ts[b], &cur_msg[own_number].rx_ts[a]);
+                    }
+                    else if ( a < own_number && own_number < b) {
+                        // we sent after a but before b, hence, the rx value for a was sent in the last round while the one for b was sent in the current one
+                        tdoa_m_dur = get_uint_duration(&cur_msg[own_number].rx_ts[b], &last_msg[own_number].rx_ts[a]);
+                    } else if (a < own_number && b < own_number) {
+                        // we sent after a and after b, hence, the rx values for both were sent in the last round
+                        tdoa_m_dur = get_uint_duration(&last_msg[own_number].rx_ts[b], &last_msg[own_number].rx_ts[a]);
+                    } else {
+                        // own_number == a or own_number == b
+                    }
+                }
             } else {
                 // otherwise b transmitted before a, so it should reside in the current round
                 // TODO: Since we have a lot of delay between rounds, this round and delay values are too big to be handled with the necessary precision!
@@ -238,22 +271,40 @@ void on_round_end(uint16_t round_number) {
 
             if (round_dur_a != 0 && delay_dur_b != 0 && !isnan(relative_drift_offsets[a]) && !isnan(relative_drift_offsets[b])) {
                 int64_t drift_offset_int = round(relative_drift_offsets[a]*(float32_t)round_dur_a - relative_drift_offsets[b]*(float32_t)delay_dur_b);
-                int64_t two_tof_int = (int64_t)round_dur_a - (int64_t)delay_dur_b + drift_offset_int;
 
+                int64_t two_tof_int = (int64_t)round_dur_a - (int64_t)delay_dur_b + drift_offset_int;
                 measurement_t tof_in_uwb_us = ((float) two_tof_int) * 0.5;
 
                 if (!dummy){
                     estimation_add_measurement(a, b, tof_in_uwb_us);
                 }
 
-                int64_t int_val = tof_in_uwb_us * 1000.0f;
-                snprintf(buf, sizeof(buf), "[%llu, %llu, %lld, %lld]", round_dur_a, delay_dur_b, int_val, two_tof_int);
+                // Handle TDoA values, given we have received a value...
+                int64_t two_tdoa_int = 0;
+                measurement_t tdoa_in_uwb_us = 0.0;
+
+                if (tdoa_m_dur != 0)
+                {
+                    int64_t tdoa_drift_offset_int = round(relative_drift_offsets[a]*(float32_t)round_dur_a + relative_drift_offsets[b]*(float32_t)delay_dur_b);
+                    two_tdoa_int = (int64_t)round_dur_a + (int64_t)delay_dur_b + tdoa_drift_offset_int - (int64_t)(2*tdoa_m_dur);
+                    tdoa_in_uwb_us = ((float) two_tdoa_int) * 0.5;
+                }
+
+                int64_t tof_int_val = tof_in_uwb_us * 1000.0f;
+                int64_t tdoa_int_val = tdoa_in_uwb_us * 1000.0f;
+                snprintf(buf, sizeof(buf), "[%llu, %llu, %lld, %lld, %lld, %lld, %lld]", round_dur_a, delay_dur_b, tof_int_val, two_tof_int, tdoa_m_dur, tdoa_int_val, two_tdoa_int);
                 LOG_RAW_CMD(buf);
 
-                float est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
+                float tof_est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
+                int64_t tof_est_cm = tof_est_distance_in_m*100;
 
-                int64_t est_cm = est_distance_in_m*100;
-                //LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, est_cm, round_dur_a, delay_dur_b);
+                float tdoa_est_diff_in_m = tdoa_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
+                int64_t tdoa_est_cm = tdoa_est_diff_in_m*100;
+
+//                if((own_number == 0 || own_number == 2 || own_number == 4)  && a == 1 && b == 3) {
+//                    LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, tof_est_cm, round_dur_a, delay_dur_b);
+//                    LOG_DBG("Round TDoA cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, tdoa_est_cm, round_dur_a, delay_dur_b);
+//                }
             } else {
                 LOG_RAW_CMD("null");
             }
@@ -261,10 +312,20 @@ void on_round_end(uint16_t round_number) {
             if (b != NUM_NODES - 1 || a < b - 1) {
                 LOG_RAW_CMD(", ");
             }
-
         }
     }
     LOG_RAW_CMD("]}\n");
+
+    // We now log the raw memory - just to be save!
+    {
+        LOG_RAW_CMD("{\"type\": \"raw_mem\", \"last_msg\":\"");
+        log_mem(&last_msg, sizeof(last_msg));
+        LOG_RAW_CMD("\", \"cur_msg\":\"");
+        log_mem(&cur_msg, sizeof(cur_msg));
+        LOG_RAW_CMD("\", \"tx_buf\":\"");
+        log_mem(&msg_tx_buf, sizeof(msg_tx_buf));
+        LOG_RAW_CMD("\"}\n");
+    }
 
     // copy all of the current messages to the last round
     memcpy(&last_msg, &cur_msg, sizeof(last_msg));

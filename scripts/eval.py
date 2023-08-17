@@ -29,7 +29,7 @@ PROTOCOL_NAME = "ALADIn"
 
 runs = {
         'trento_a': 'job_fixed',  # [(6,3)],
-        'trento_b': 'job_fixed',
+        'trento_b': 'job_tdoa',
         'lille': 'job_fixed'  # [(11,3), (10,3), (7,1), (5,0)],
 }
 
@@ -129,7 +129,7 @@ def export_testbed_variance(config, export_dir):
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 6), proc))
+        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 9), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -164,9 +164,9 @@ def export_testbed_variance(config, export_dir):
 
 def export_testbed_variance_from_device(config, export_dir):
 
-    std_upper_lim = 10.0
+    std_upper_lim = 100.0
 
-    for (c, t) in enumerate([lille, trento_a, trento_b]):
+    for (c, t) in enumerate([trento_b]):
 
         def proc():
             est_df = pd.DataFrame.from_records(gen_estimations_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
@@ -193,7 +193,7 @@ def export_testbed_variance_from_device(config, export_dir):
             print(ma)
             return ma
 
-        ma = np.array(cached(('meas_var_device', t.name, runs[t.name], src_devs[t.name], 7), proc))
+        ma = np.array(cached(('meas_var_device', t.name, runs[t.name], src_devs[t.name], 9), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -221,6 +221,59 @@ def export_testbed_variance_from_device(config, export_dir):
         plt.tight_layout()
 
         plt.savefig("{}/var_ma_{}_from_device.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
+
+def export_testbed_tdoa_variance(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for (c, t) in enumerate([trento_b]):
+
+        def proc():
+            meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+            meas_df['estimated_m'] = meas_df['estimated_tdoa']
+            meas_df = meas_df[['pair', 'estimated_m', 'dist']]
+
+            ma = np.zeros((len(t.devs)-1, len(t.devs)-1))
+            res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+
+            for a in range(len(t.devs)-1):
+                for b in range(len(t.devs)-1):
+                    if a > b:
+                        e = res.loc['{}-{}'.format(a+1, b+1), ('estimated_m', 'std')]*100   # in cm
+                        ma[a-1, b-1] = e
+                        ma[b-1, a-1] = e
+            return ma
+
+        ma = np.array(cached(('export_testbed_tdoa_variance', t.name, runs[t.name], src_devs[t.name], 13), proc))
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+2))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+2))
+        fig.set_size_inches(4.75, 4.75)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_tdoa_ma_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
 
         plt.close()
 
@@ -741,6 +794,140 @@ def export_scatter_graph_trento_a(config, export_dir):
     plt.savefig("{}/measurements_scatter_trento_a.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
     plt.close()
 
+
+def export_tdoa_simulation_drift_performance(config, export_dir):
+
+    from sim_tdoa import sim
+
+    xs = [0.0]
+    num_repetitions = 1000000
+
+    data_rows = []
+
+    for x in xs:
+
+        tof_std, tdoa_std = sim(
+            num_exchanges=num_repetitions,
+            resp_delay_s=0.001,
+            node_drift_std=x,
+            rx_noise_std=1.0e-09,
+            tx_delay_mean=0.0,
+            tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+        )
+
+        data_rows.append(
+            {
+                'node_drift_std': x,
+                'tof_std': tof_std,
+                'tdoa_std': tdoa_std,
+            }
+        )
+
+
+    df = pd.DataFrame(data_rows)
+
+    df = df.rename(columns={"tof_std": "ToF SD", "tdoa_std": "TDoA SD"})
+
+    plt.clf()
+    ax = df.plot.bar(x='node_drift_std', y=['ToF SD', 'TDoA SD'], width=0.8)
+
+
+    plt.ylim(0.0, 1.0)
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Node Drift SD")
+    ax.set_ylabel("Sample SD [cm]")
+
+    counter = 0
+    for p in ax.patches:
+        height = p.get_height()
+        if np.isnan(height):
+            height = 0
+
+        ax.text(p.get_x() + p.get_width() / 2., height,
+                "{:.2f}".format(height), fontsize=9, color='black', ha='center',
+                va='bottom')
+
+        # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
+        counter += 1
+
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/tdoa_sim_rmse_drifts.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
+    #plt.show()
+
+    plt.close()
+
+
+def export_tdoa_simulation_rx_noise(config, export_dir):
+
+    from sim_tdoa import sim, c_in_air
+
+    xs = [2.5, 5, 10, 20]
+    num_repetitions = 1000000
+
+    data_rows = []
+
+    for x in xs:
+
+        tof_std, tdoa_std = sim(
+            num_exchanges=num_repetitions,
+            resp_delay_s=0.001,
+            node_drift_std=1.0e-06,
+            rx_noise_std=x/100.0,
+            tx_delay_mean=0.0,
+            tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+        )
+
+        data_rows.append(
+            {
+                'rx_noise_std': x,
+                'tof_std': tof_std,
+                'tdoa_std': tdoa_std,
+            }
+        )
+
+
+    df = pd.DataFrame(data_rows)
+
+    df = df.rename(columns={"tof_std": "ToF SD", "tdoa_std": "TDoA SD"})
+
+    plt.clf()
+    ax = df.plot.bar(x='rx_noise_std', y=['ToF SD', 'TDoA SD'], width=0.8)
+
+
+    plt.ylim(0.0, 1.0)
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Reception Noise SD")
+    ax.set_ylabel("Sample SD [cm]")
+
+    counter = 0
+    for p in ax.patches:
+        height = p.get_height()
+        if np.isnan(height):
+            height = 0
+
+        ax.text(p.get_x() + p.get_width() / 2., height,
+                "{:.3f}".format(height), fontsize=9, color='black', ha='center',
+                va='bottom')
+
+        # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
+        counter += 1
+
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/tdoa_sim_rmse_rx_noise.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
+    #plt.show()
+
+    plt.close()
+
 if __name__ == '__main__':
 
     config = load_env_config()
@@ -753,15 +940,18 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     steps = [
-        export_testbed_layouts,
-        export_scatter_graph_trento_a,
-        export_trento_a_pairs,
-        export_simulation_performance,
-        export_filtered_mae_reduction,
+        #export_testbed_layouts,
+        #export_scatter_graph_trento_a,
+        #export_trento_a_pairs,
+        #export_simulation_performance,
+        #export_filtered_mae_reduction,
+        #export_testbed_variance,
+        #export_overall_mae_reduction,
+        #export_overall_rmse_reduction,
+        #export_tdoa_simulation_drift_performance
+        #export_tdoa_simulation_rx_noise
         export_testbed_variance,
-        export_testbed_variance_from_device,
-        export_overall_mae_reduction,
-        export_overall_rmse_reduction,
+        export_testbed_tdoa_variance
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):
