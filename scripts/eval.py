@@ -123,7 +123,7 @@ def export_testbed_variance(config, export_dir):
 
             for a in range(len(t.devs)):
                 for b in range(len(t.devs)):
-                    if a > b:
+                    if b > a:
                         e = res.loc['{}-{}'.format(a, b), ('estimated_m', 'std')]*100   # in cm
                         ma[a, b] = e
                         ma[b, a] = e
@@ -179,7 +179,7 @@ def export_testbed_variance_from_device(config, export_dir):
 
             for a in range(len(t.devs)):
                 for b in range(len(t.devs)):
-                    if a > b:
+                    if b > a:
                         res = est_df.loc[est_df['pair'] == '{}-{}'.format(a, b), "var_measurement"]
 
                         e = 0.0
@@ -240,7 +240,7 @@ def export_testbed_tdoa_variance(config, export_dir):
 
             for a in range(len(t.devs)-1):
                 for b in range(len(t.devs)-1):
-                    if a > b:
+                    if b > a:
                         e = res.loc['{}-{}'.format(a+1, b+1), ('estimated_m', 'std')]*100   # in cm
                         ma[a-1, b-1] = e
                         ma[b-1, a-1] = e
@@ -653,7 +653,7 @@ def export_filtered_mae_reduction(config, export_dir):
 
             for (a, da) in enumerate(t.devs):
                 for (b, db) in enumerate(t.devs):
-                    if a > b:
+                    if b > a:
                         actual[pair_index(a, b)] = get_dist(t.dev_positions[da], t.dev_positions[db])
                         measured[pair_index(a, b)] = est_df[est_df['pair']== '{}-{}'.format(a,b)]['mean_measurement']
 
@@ -664,7 +664,7 @@ def export_filtered_mae_reduction(config, export_dir):
 
             for (a, da) in enumerate(t.devs):
                 for (b, db) in enumerate(t.devs):
-                    if a > b:
+                    if b > a:
                         filtered_res_in_m[pair_index(a, b)] = measured[pair_index(a, b)]-0.5*delays_in_m[a]-0.5*delays_in_m[b]
 
             est_df['err_calibrated_filtered'] = filtered_res_in_m - actual

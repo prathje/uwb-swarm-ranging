@@ -56,7 +56,7 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
 
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
-                    if a <= b:
+                    if b <= a:
                         continue
 
 
@@ -145,7 +145,8 @@ def extract_estimations(msg_iter, testbed, src_dev):
                 
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
-                    if a <= b:
+
+                    if b <= a:
                         continue
 
                     pi = pair_index(a,b)
