@@ -11,7 +11,7 @@ from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, con
 
 import matplotlib
 import matplotlib.pyplot as plt
-from utility import slugify, cached, init_cache, load_env_config
+from utility import slugify, cached, init_cache, load_env_config, set_global_cache_prefix_by_config
 
 import pandas as pd
 
@@ -129,7 +129,7 @@ def export_testbed_variance(config, export_dir):
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 9), proc))
+        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 11), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -160,7 +160,166 @@ def export_testbed_variance(config, export_dir):
 
         plt.close()
 
-        #plt.show()
+def export_testbed_variance_calculated_tof(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for (c, t) in enumerate([lille, trento_a, trento_b]):
+
+        def proc():
+            meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+            meas_df['estimated_m'] = meas_df['calculated_tof']
+            meas_df = meas_df[['pair', 'estimated_m', 'dist']]
+
+            ma = np.zeros((len(t.devs), len(t.devs)))
+            res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+
+            for a in range(len(t.devs)):
+                for b in range(len(t.devs)):
+                    if b > a:
+                        e = res.loc['{}-{}'.format(a, b), ('estimated_m', 'std')]*100   # in cm
+                        ma[a, b] = e
+                        ma[b, a] = e
+            return ma
+
+        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 10), proc))
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+        fig.set_size_inches(4.75, 4.75)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_ma_calculated_tof_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+        plt.close()
+
+def export_testbed_variance_calculated_tof_ci(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for (c, t) in enumerate([lille, trento_a, trento_b]):
+
+        def proc():
+            meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+            meas_df['estimated_m'] = meas_df['calculated_tof_ci']
+            meas_df = meas_df[['pair', 'estimated_m', 'dist']]
+
+            ma = np.zeros((len(t.devs), len(t.devs)))
+            res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+
+            for a in range(len(t.devs)):
+                for b in range(len(t.devs)):
+                    if b > a:
+                        e = res.loc['{}-{}'.format(a, b), ('estimated_m', 'std')]*100   # in cm
+                        ma[a, b] = e
+                        ma[b, a] = e
+            return ma
+
+        ma = np.array(cached(('var_ma_calculated_tof_ci_', t.name, runs[t.name], src_devs[t.name], 12), proc))
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+        fig.set_size_inches(4.75, 4.75)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_ma_calculated_tof_ci_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
+
+def export_testbed_variance_calculated_tof_ci_avg(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for x in [1, 2]:
+        num_ci_avg = x
+
+        for (c, t) in enumerate([lille, trento_a, trento_b]):
+
+            def proc():
+                meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name], num_ci_drift_avg=num_ci_avg))
+                meas_df['estimated_m'] = meas_df['calculated_tof_ci_avg']
+                meas_df = meas_df[['pair', 'estimated_m', 'dist']]
+
+                ma = np.zeros((len(t.devs), len(t.devs)))
+                res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+
+                for a in range(len(t.devs)):
+                    for b in range(len(t.devs)):
+                        if b > a:
+                            e = res.loc['{}-{}'.format(a, b), ('estimated_m', 'std')]*100   # in cm
+                            ma[a, b] = e
+                            ma[b, a] = e
+                return ma
+
+            ma = np.array(cached(('export_testbed_variance_calculated_tof_ci_avg', t.name, runs[t.name], src_devs[t.name], 12, num_ci_avg), proc))
+            print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+            plt.clf()
+            fig, ax = plt.subplots(figsize=(7.5, 7.5))
+            ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+            for i in range(ma.shape[0]):
+                for j in range(ma.shape[1]):
+                    if i != j:
+                        e = ma[i, j]
+                        if e > 100:
+                            e = int(ma[i, j])
+                        else:
+                            e = round(ma[i, j], 1)
+
+                        if e >= std_upper_lim:
+                            s = r"\underline{" + str(e) + "}"
+                        else:
+                            s = str(e)
+                        ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+            ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+            ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+            fig.set_size_inches(4.75, 4.75)
+            plt.tight_layout()
+
+            plt.savefig("{}/var_ma_calculated_tof_ci_avg_{}_{}.pdf".format(export_dir, num_ci_avg, t.name), bbox_inches='tight', pad_inches=0)
+
+            plt.close()
 
 def export_testbed_variance_from_device(config, export_dir):
 
@@ -190,7 +349,6 @@ def export_testbed_variance_from_device(config, export_dir):
 
                         ma[a, b] = e
                         ma[b, a] = e
-            print(ma)
             return ma
 
         ma = np.array(cached(('meas_var_device', t.name, runs[t.name], src_devs[t.name], 9), proc))
@@ -233,7 +391,9 @@ def export_testbed_tdoa_variance(config, export_dir):
         def proc():
             meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
             meas_df['estimated_m'] = meas_df['estimated_tdoa']
-            meas_df = meas_df[['pair', 'estimated_m', 'dist']]
+            meas_df = meas_df[['pair', 'estimated_m', 'tdoa']]
+
+            print(meas_df)
 
             ma = np.zeros((len(t.devs)-1, len(t.devs)-1))
             res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
@@ -246,7 +406,7 @@ def export_testbed_tdoa_variance(config, export_dir):
                         ma[b-1, a-1] = e
             return ma
 
-        ma = np.array(cached(('export_testbed_tdoa_variance', t.name, runs[t.name], src_devs[t.name], 13), proc))
+        ma = np.array(cached(('export_testbed_tdoa_variance', t.name, runs[t.name], src_devs[t.name], 16), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -278,6 +438,121 @@ def export_testbed_tdoa_variance(config, export_dir):
         plt.close()
 
         #plt.show()
+
+def export_testbed_tdoa_calculated_tdoa_variance(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for (c, t) in enumerate([trento_b]):
+
+        def proc():
+            meas_df = pd.DataFrame.from_records(gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+            meas_df['estimated_m'] = meas_df['calculated_tdoa']
+            meas_df = meas_df[['pair', 'estimated_m', 'tdoa']]
+
+            print(meas_df)
+
+            ma = np.zeros((len(t.devs)-1, len(t.devs)-1))
+            res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+
+            for a in range(len(t.devs)-1):
+                for b in range(len(t.devs)-1):
+                    if b > a:
+                        e = res.loc['{}-{}'.format(a+1, b+1), ('estimated_m', 'std')]*100   # in cm
+                        ma[a-1, b-1] = e
+                        ma[b-1, a-1] = e
+            return ma
+
+        ma = np.array(cached(('export_testbed_tdoa_variance_calculated_tdoa', t.name, runs[t.name], src_devs[t.name], 16), proc))
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+2))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+2))
+        fig.set_size_inches(4.75, 4.75)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_tdoa_ma_calculated_tdoa_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
+
+def export_testbed_tdoa_calculated_tdoa_ci_variance(config, export_dir):
+
+    std_upper_lim = 10.0
+
+    for (c, t) in enumerate([trento_b]):
+
+        def proc():
+            meas_df = pd.DataFrame.from_records(
+                gen_measurements_from_testbed_run(t, runs[t.name], src_dev=src_devs[t.name]))
+            meas_df['estimated_m'] = meas_df['calculated_tdoa_ci']
+            meas_df = meas_df[['pair', 'estimated_m', 'tdoa']]
+
+            print(meas_df)
+
+            ma = np.zeros((len(t.devs) - 1, len(t.devs) - 1))
+            res = meas_df.groupby('pair').aggregate(func=['mean', 'std'])
+
+            for a in range(len(t.devs) - 1):
+                for b in range(len(t.devs) - 1):
+                    if b > a:
+                        e = res.loc['{}-{}'.format(a + 1, b + 1), ('estimated_m', 'std')] * 100  # in cm
+                        ma[a - 1, b - 1] = e
+                        ma[b - 1, a - 1] = e
+            return ma
+
+        ma = np.array(
+            cached(('export_testbed_tdoa_variance_calculated_tdoa_ci', t.name, runs[t.name], src_devs[t.name], 16),
+                   proc))
+        print(t.name, "mean std", ma.mean(), "median", np.median(ma), "max", np.max(ma), "90% quantile",
+              np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma, vmin=0.0, vmax=std_upper_lim, norm='asinh')
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+
+                    if e >= std_upper_lim:
+                        s = r"\underline{" + str(e) + "}"
+                    else:
+                        s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x + 2))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x + 2))
+        fig.set_size_inches(4.75, 4.75)
+        plt.tight_layout()
+
+        plt.savefig("{}/var_tdoa_ma_calculated_tdoa_ci_{}.pdf".format(export_dir, t.name), bbox_inches='tight',
+                    pad_inches=0)
+
+        plt.close()
 
 
 
@@ -799,16 +1074,16 @@ def export_tdoa_simulation_drift_performance(config, export_dir):
 
     from sim_tdoa import sim
 
-    xs = [0.0]
-    num_repetitions = 1000000
+    xs = [0.0, 1.0e-06 , 1.0e-05, 1.0e-04, 1.0e-03]
+    num_repetitions = 100000
 
     data_rows = []
 
     for x in xs:
 
-        tof_std, tdoa_std = sim(
+        tof_std, tdoa_std, _ = sim(
             num_exchanges=num_repetitions,
-            resp_delay_s=0.001,
+            resp_delay_s=(1.0, 0.000001),
             node_drift_std=x,
             rx_noise_std=1.0e-09,
             tx_delay_mean=0.0,
@@ -818,8 +1093,8 @@ def export_tdoa_simulation_drift_performance(config, export_dir):
         data_rows.append(
             {
                 'node_drift_std': x,
-                'tof_std': tof_std,
-                'tdoa_std': tdoa_std,
+                'tof_std': 1.0e09*tof_std/c_in_air,
+                'tdoa_std': 1.0e09*tdoa_std/c_in_air,
             }
         )
 
@@ -832,7 +1107,7 @@ def export_tdoa_simulation_drift_performance(config, export_dir):
     ax = df.plot.bar(x='node_drift_std', y=['ToF SD', 'TDoA SD'], width=0.8)
 
 
-    plt.ylim(0.0, 1.0)
+    plt.ylim(0.0, 2.0)
     ax.set_axisbelow(True)
     ax.set_xlabel("Node Drift SD")
     ax.set_ylabel("Sample SD [cm]")
@@ -928,6 +1203,202 @@ def export_tdoa_simulation_rx_noise(config, export_dir):
 
     plt.close()
 
+
+def export_tdoa_simulation_response_std(config, export_dir):
+
+    from sim_tdoa import sim
+
+    limit = 6.0
+    step = 0.1
+    response_delay_exps = np.arange(-limit, limit+step, step)
+
+    xs = response_delay_exps
+    num_sims = 10000
+    num_repetitions = 1
+    resp_delay_s = 1.0
+
+    def proc():
+        data_rows = []
+        for x in xs:
+            tof_std = []
+            tdoa_std = []
+
+            for r in range(num_repetitions):
+                run_tof_std, run_tdoa_std, _ = sim(
+                    num_exchanges=num_sims,
+                    resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
+                    node_drift_std=10.0/1000000.0,
+                    rx_noise_std=1.0e-09,
+                    tx_delay_mean=0.0,
+                    tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+                )
+
+                tof_std.append(run_tof_std)
+                tdoa_std.append(run_tdoa_std)
+
+            tof_std = 1.0e09*np.asarray(tof_std)/c_in_air
+            tdoa_std = 1.0e09*np.asarray(tdoa_std)/c_in_air
+
+            data_rows.append(
+                {
+                    'rdr': x,
+                    'tof_std_mean': tof_std.mean(),
+                    'tof_std_se': tof_std.std() / tof_std.size,
+                    'tdoa_std_mean': tdoa_std.mean(),
+                    'tdoa_std_se': tdoa_std.mean() / tdoa_std.size,
+                }
+            )
+        return data_rows
+
+    data_rows = cached( ('export_tdoa_simulation_response_std', limit, step, 8, num_sims, resp_delay_s), proc)
+
+
+    df = pd.DataFrame(data_rows)
+    print("min tof", df['tof_std_mean'].min(), "min tdoa sd", df['tdoa_std_mean'].min())
+
+    df = df.rename(columns={"tof_std_mean": "Simulated ToF SD", "tdoa_std_mean": "Simulated TDoA SD"})
+
+    plt.clf()
+    ax = df.plot.line(x='rdr', y=['Simulated ToF SD', 'Simulated TDoA SD'])
+
+    ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
+
+    #plt.axhline(y=np.sqrt(0.5), color='C0', linestyle='dotted', label = "Analytical ToF SD")
+    #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA SD")
+
+
+
+    plt.ylim(0.2, 1.8)
+
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Delay Ratio $\\frac{D_A}{D_B}$")
+    ax.set_ylabel("Sample SD [ns]")
+
+    from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+
+    ax.yaxis.set_major_locator(MultipleLocator(1.0))
+    ax.yaxis.set_minor_locator(MultipleLocator(0.2))
+
+
+    # counter = 0
+    # for p in ax.patches:
+    #     height = p.get_height()
+    #     if np.isnan(height):
+    #         height = 0
+    #
+    #     ax.text(p.get_x() + p.get_width() / 2., height,
+    #             "{:.2f}".format(height), fontsize=9, color='black', ha='center',
+    #             va='bottom')
+    #
+    #     # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
+    #     counter += 1
+
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.legend()
+    plt.gcf().set_size_inches(6.0, 4.5)
+
+    ticks = list(ax.get_yticks())
+    labels = list(ax.get_yticklabels())
+
+    ticks.append(np.sqrt(0.5))
+    ticks.append(np.sqrt(2.5))
+
+    labels.append(r'$\sqrt{0.5}\sigma$')
+    labels.append(r'$\sqrt{2.5}\sigma$')
+
+    ax.set_yticks(ticks)
+    ax.set_yticklabels(labels)
+
+    print(ticks)
+    print(labels)
+
+
+    plt.tight_layout()
+
+    plt.savefig("{}/tdoa_sim_rmse_reponse_delay_ratio.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
+    #plt.show()
+
+    plt.close()
+
+
+def export_tdoa_simulation_response_std_scatter(config, export_dir):
+
+    from sim_tdoa import sim
+
+
+    response_delay_exps = np.arange(-6.0, 6+1, 0.25)
+
+    xs = response_delay_exps
+    num_sims = 100
+    resp_delay_s = 1.0
+
+    def proc():
+        data_rows = []
+        for x in xs:
+
+            run_tof_std, run_tdoa_std, run_data_rows = sim(
+                num_exchanges=num_sims,
+                resp_delay_s=(resp_delay_s, resp_delay_s * np.power(10, x)),
+                node_drift_std=10.0 / 1000000.0,
+                rx_noise_std=1.0e-09,
+                tx_delay_mean=0.0,
+                tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+            )
+
+            for row in run_data_rows:
+                data_rows.append(
+                    {
+                        'rdr': x,
+                        'tof_std': 1.0e09*(row['est_tof_a']-row['real_tof']),
+                        'tdoa_std': 1.0e09*(row['est_tdoa']-row['real_tdoa']),
+                    }
+                )
+
+        return data_rows
+
+    data_rows = cached( ('export_tdoa_simulation_response_std_scatter', hash(json.dumps(list(xs))), 9, num_sims, resp_delay_s, num_sims), proc)
+    df = pd.DataFrame(data_rows)
+    print(df)
+
+    df = df.rename(columns={"tof_std": "ToF SD", "tdoa_std": "TDoA SD"})
+
+    plt.clf()
+    #ax = df.plot.line(x='rdr', y=['ToF SD', 'TDoA SD'])
+    ax = df.plot.scatter(x='rdr', y='ToF SD', alpha=0.2)
+    #ax = df.plot.scatter(x='rdr', y='TDoA SD')
+
+
+    plt.ylim(-4.0, 4.0)
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Response Ratio")
+    ax.set_ylabel("Sample SD [ns]")
+
+    # counter = 0
+    # for p in ax.patches:
+    #     height = p.get_height()
+    #     if np.isnan(height):
+    #         height = 0
+    #
+    #     ax.text(p.get_x() + p.get_width() / 2., height,
+    #             "{:.2f}".format(height), fontsize=9, color='black', ha='center',
+    #             va='bottom')
+    #
+    #     # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
+    #     counter += 1
+
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/export_tdoa_simulation_response_std_scatter.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
+    #plt.show()
+
+    plt.close()
+
 if __name__ == '__main__':
 
     config = load_env_config()
@@ -948,10 +1419,18 @@ if __name__ == '__main__':
         #export_testbed_variance,
         #export_overall_mae_reduction,
         #export_overall_rmse_reduction,
-        #export_tdoa_simulation_drift_performance
+        #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        export_testbed_variance,
-        export_testbed_tdoa_variance
+        #export_tdoa_simulation_response_std,
+        #export_tdoa_simulation_response_std_scatter,
+        #export_testbed_variance,
+        #export_testbed_variance_calculated_tof,
+        #export_testbed_variance_calculated_tof_ci,
+        export_testbed_tdoa_variance,
+        export_testbed_tdoa_calculated_tdoa_variance,
+        export_testbed_tdoa_calculated_tdoa_ci_variance,
+        export_testbed_variance_calculated_tof,
+        export_testbed_variance_calculated_tof_ci_avg
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):

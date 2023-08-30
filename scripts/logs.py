@@ -43,13 +43,13 @@ def extract_types(msg_iter, types):
 
 
 
-def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
+def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci_drift_avg = 0):
     rounds, raw_measurements, drift_estimations = extract_types(msg_iter, ['raw_measurements', 'drift_estimation'])
 
     # put all messages into (d, round) sets
 
     for r in rounds:
-        for d in testbed.devs:
+        for (d_index, d) in enumerate(testbed.devs):
 
             if src_dev and d != src_dev:
                 continue # we skip as we do not have this data anyway!
@@ -71,6 +71,7 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
                     record['responder'] = b
                     record['pair'] = "{}-{}".format(a,b)
                     record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
+                    record['tdoa'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[d])-get_dist(testbed.dev_positions[d], testbed.dev_positions[db])
 
                     msg = raw_measurements.get((d, r), None)
 
@@ -94,9 +95,8 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
                             record['tdoa_m'] = msg['measurements'][pi][4]
                             record['estimated_tdoa'] = convert_ts_to_m(convert_logged_measurement(msg['measurements'][pi][5]))
 
-                    print(record['estimated_tdoa'])
-
                     msg = drift_estimations.get((d, r), None)
+
                     record['own_dur_a'] = None
                     record['other_dur_a'] = None
                     record['relative_drift_a'] = None
@@ -106,11 +106,46 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
                     record['relative_drift_b'] = None
                     record['relative_drift_b_ci'] = None
 
+
+                    # calculate average drift estimation using carrierintegrators, note that we are using dummy rounds here as well!
+
+                    sum_ci_drift_a = 0.0
+                    num_ci_drift_a = 0
+                    sum_ci_drift_b = 0.0
+                    num_ci_drift_b = 0
+
+                    for old_r in range(r-num_ci_drift_avg, r+1):
+                        old_ci_msg = drift_estimations.get((d, old_r), None)
+                        if old_ci_msg is None:
+                            continue
+                        if old_ci_msg['carrierintegrators'][a] != 0:
+                            sum_ci_drift_a += ci_to_rd(old_ci_msg['carrierintegrators'][a])
+                            num_ci_drift_a += 1
+
+                        if old_ci_msg['carrierintegrators'][b] != 0:
+                            sum_ci_drift_b += ci_to_rd(old_ci_msg['carrierintegrators'][b])
+                            num_ci_drift_b += 1
+
+                    if num_ci_drift_a > 0:
+                        record['relative_drift_a_ci_avg'] = sum_ci_drift_a / num_ci_drift_a
+
+                    if num_ci_drift_b > 0:
+                        record['relative_drift_b_ci_avg'] = sum_ci_drift_b / num_ci_drift_b
+
+
+                    if a == d_index:
+                        record['relative_drift_a_ci'] = 1.0
+                        record['relative_drift_a_ci_avg'] = 1.0
+                    if b == d_index:
+                        record['relative_drift_b_ci'] = 1.0
+                        record['relative_drift_b_ci_avg'] = 1.0
+
                     if msg is not None:
 
                         if 'carrierintegrators' in msg:
                             if msg['carrierintegrators'][a] != 0:
                                 record['relative_drift_a_ci'] = ci_to_rd(msg['carrierintegrators'][a])
+
                             if msg['carrierintegrators'][b] != 0:
                                 record['relative_drift_b_ci'] = ci_to_rd(msg['carrierintegrators'][b])
 
@@ -131,6 +166,19 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False):
                     if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur']]:
                         record['calculated_tof'] = convert_ts_to_m(record['relative_drift_a'] *record['round_dur'] - record['relative_drift_b'] * record['response_dur'])*0.5
 
+                    if None not in [record['relative_drift_a_ci'], record['relative_drift_b_ci'], record['round_dur'], record['response_dur']]:
+                        record['calculated_tof_ci'] = convert_ts_to_m(record['relative_drift_a_ci'] *record['round_dur'] - record['relative_drift_b_ci'] * record['response_dur'])*0.5
+                        record['calculated_tof_ci_avg'] = convert_ts_to_m(record['relative_drift_a_ci_avg'] *record['round_dur'] - record['relative_drift_b_ci_avg'] * record['response_dur'])*0.5
+
+
+                    if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur'], record['tdoa_m']]:
+                        record['calculated_tdoa'] = convert_ts_to_m(record['relative_drift_a'] *record['round_dur']*0.5 + record['relative_drift_b'] * record['response_dur']*0.5-record['tdoa_m'])
+
+                    if None not in [record['relative_drift_a_ci'], record['relative_drift_b_ci'], record['round_dur'], record['response_dur'], record['tdoa_m']]:
+                        record['calculated_tdoa_ci'] = convert_ts_to_m(record['relative_drift_a_ci'] *record['round_dur']*0.5 + record['relative_drift_b_ci'] * record['response_dur']*0.5-record['tdoa_m'])
+                        record['calculated_tdoa_ci_avg'] = convert_ts_to_m(record['relative_drift_a_ci_avg'] *record['round_dur']*0.5 + record['relative_drift_b_ci_avg'] * record['response_dur']*0.5-record['tdoa_m'])
+
+
                     yield record
 
 
@@ -142,10 +190,9 @@ def extract_estimations(msg_iter, testbed, src_dev):
         for d in testbed.devs:
             if src_dev and d != src_dev:
                 continue # we skip as we do not have this data anyway!
-                
+
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
-
                     if b <= a:
                         continue
 
@@ -238,11 +285,11 @@ def extract_delay_estimates(msg_iter, testbed, src_dev, ignore_pairs=[]):
                 yield record
 
 
-def gen_measurements_from_testbed_run(testbed, run, src_dev=None, include_dummy=False):
+def gen_measurements_from_testbed_run(testbed, run, src_dev=None, include_dummy=False, num_ci_drift_avg=0):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
     with open(logfile) as f:
-        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, include_dummy=include_dummy)
+        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, include_dummy=include_dummy, num_ci_drift_avg=num_ci_drift_avg)
 
 
 def gen_estimations_from_testbed_run(testbed, run, src_dev=None):

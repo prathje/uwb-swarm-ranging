@@ -37,7 +37,17 @@ class NumpyEncoder(json.JSONEncoder):
 
 export_cache_dir = None
 
+global_cache_prefix = ""
+
+def set_global_cache_prefix(pref):
+    global global_cache_prefix
+    global_cache_prefix = slugify(pref)
+
+def set_global_cache_prefix_by_config(config):
+    set_global_cache_prefix(hash(json.dumps(config, sort_keys=True)))
+
 def cached(id, proc_cb=None):
+    global global_cache_prefix
     if export_cache_dir:
         cache_file = os.path.join(export_cache_dir, slugify(id) + '.json.gz')
         if not os.path.isfile(cache_file):
