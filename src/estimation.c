@@ -7,7 +7,7 @@
 
 #include "estimation.h"
 #include "nodes.h"
-#include "uart.h"
+#include "log.h"
 #include "measurements.h"
 
 LOG_MODULE_REGISTER(estimation);

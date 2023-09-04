@@ -3,15 +3,12 @@
 #include "nodes.h"
 
 
+
+
 // testbed defined in testbed.c
 
 inline size_t pair_index(uint16_t a, uint16_t b) {
-       if (a > b) {
-            size_t num_pairs_before = (a*(a-1))/2; // we have exactly that sum of measurements before
-            return num_pairs_before+b;
-       } else {
-            return pair_index(b, a);
-       }
+       return PAIR_INDEX(a,b);
 }
 
 

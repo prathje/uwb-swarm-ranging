@@ -9,26 +9,39 @@
 
 #include "nodes.h"
 #include "estimation.h"
-#include "uart.h"
+#include "log.h"
 #include "measurements.h"
 #include "history.h"
 
 LOG_MODULE_REGISTER(main);
 
-#define NUM_MEASUREMENTS 1000
-#define NUM_DUMMY_ROUNDS 200
+#define LOG_FLUSH_DIRECTLY 0
+
+#define NUM_ROUNDS (10)
+
 #define INITIAL_DELAY_MS 5000
-#define LOG_RAW 1
+#define SLOT_DUR_UUS 2000
+#define TX_BUFFER_DELAY_UUS 1000
+#define POST_ROUND_DELAY_UUS 2000000
+#define PRE_ROUND_DELAY_UUS 5000
+#define DWT_TS_MASK (0xFFFFFFFFFF)
 
-#define NUM_ROUNDS ((NUM_DUMMY_ROUNDS+NUM_MEASUREMENTS)+1)
-#define SLOT_DELAY_MS 2
-#define ROUND_TIMEOUT_MS (NUM_NODES*SLOT_DELAY_MS*2*2)
-#define POST_ROUND_DELAY_MS 50
+// Debug values
+#define SLOT_DUR_UUS 2000000
+#define TX_BUFFER_DELAY_UUS 500000
 
-#if LOG_RAW
-#define LOG_RAW_CMD uart_out
+
+#define LOG_SCHEDULING 1
+
+#define ROUND_DUR_US (NUM_SLOTS*SLOT_DUR_US+POST_ROUND_DELAY_US)
+
+
+#define INITIAL_DELAY_US (5000000)
+
+#if LOG_FLUSH_DIRECTLY
+#define log_out uart_out
 #else
-#define LOG_RAW_CMD uart_disabled
+#define log_out log_out
 #endif
 
 #define FINAL_ESTIMATION_TIMEOUT_MS (ROUND_TIMEOUT_MS*10)
@@ -37,8 +50,9 @@ LOG_MODULE_REGISTER(main);
 static struct ieee802154_radio_api *radio_api;
 static const struct device *ieee802154_dev;
 
-
-static int sent_packets = 0;
+// We keep track of time in terms of dwt timestamps (which in theory should be pretty good ignoring the relative clock drift)
+static uint64_t round_start_dwt_ts = 0;
+static uint64_t last_round_start_dwt_ts = 0;
 
 // measurement
 // 40 bit measurements
@@ -47,34 +61,29 @@ static int sent_packets = 0;
 // TODO: This is not standard compliant
 static uint8_t msg_header[] = {0xDE, 0xCA};
 
+static uint16_t own_number = 0;
+static uint32_t cur_round = 0;
+static uint32_t next_slot = 0;
+
+// As we are logging everything, we do not need to actually send timestamps here.
+struct __attribute__((__packed__)) msg {
+    uint8_t number; // the tx sender number
+    uint32_t round; // The round is always started by the first node
+    uint32_t slot; // The current slot id, there are slots equal to the number of PAIRS in the system, i.e. n squared
+};
+
 static struct msg msg_tx_buf;
 
-K_SEM_DEFINE(tx_sem, 0, 1);
-K_SEM_DEFINE(msg_tx_buf_sem, 0, 1);
-
-static void init_tx_queue();
-
-extern void matrix_test();
+// Rounds are always started by the first node from which point on all other slots are being synchronized.
 
 
-static uint16_t own_number = 0;
 #define INITIATOR_ID 0
 #define IS_INITIATOR (own_number == INITIATOR_ID)
 
-static void output_msg_to_uart(struct msg* m);
 
-static int64_t round_start = 0;
-static int64_t round_end = 0;
-static int64_t last_msg_ms = 0;
+#define SLOT_IDLE -1
+#define SLOT_LOG_FLUSH -2
 
-static bool schedule_next_round = 0;
-
-// we save the last & current msgs of every node
-static struct msg last_msg[NUM_NODES];
-static struct msg cur_msg[NUM_NODES];
-
-// save the last carrierintegrator value for each received message
-static int carrierintegrators[NUM_NODES];
 
 static inline void ts_from_uint(ts_t *ts_out, uint64_t val) {
     uint8_t dst[sizeof(uint64_t)];
@@ -88,253 +97,69 @@ static inline uint64_t ts_to_uint(const ts_t *ts) {
     return sys_get_le64(buf);
 }
 
-static void log_mem(char *src, size_t s) {
 
-    char buf[8];
-    for(size_t i = 0; i < s; i++){
-        snprintf(buf, sizeof(buf), "%02hhX", (*src) & 0xff);
-        LOG_RAW_CMD(buf);
-        src++;
+#define DWT_TS_TO_US(X) (((X)*15650)/1000000000)
+#define UUS_TO_DWT_TS(X) (((uint64_t)X)*(uint64_t)65536)
+
+// this function blocks until the wanted ts is almost reached, i.e. it determines the number of us between the wanted and the current ts and blocks for that duration (also adding a correction value)
+// Note that it is not precise since we rely on the CPU cycles, yet, we just use it for rough syncs with the dwt clock
+// A small correction factor for the whole function execution
+
+// This function execution on its own has an overhead of roughly 83 us. We add a bit of buffer time to be kind of sure to schedule stuff correctly
+#define DWT_BUSY_WAIT_DWT_CORRECTION_US (100)
+static void busy_wait_until_dwt_ts(uint64_t wanted_ts) {
+    uint64_t init_ts = dwt_system_ts(ieee802154_dev);
+    uint64_t diff = DWT_TS_TO_US(((uint64_t)(wanted_ts-init_ts))&DWT_TS_MASK); // This should wrap around nicely
+
+    // We check that our wait call might not delay us too much
+    if (diff > DWT_BUSY_WAIT_DWT_CORRECTION_US && diff < DWT_TS_TO_US(DWT_TS_MASK/2)) {
+        k_busy_wait(diff - DWT_BUSY_WAIT_DWT_CORRECTION_US);
+    }
+}
+
+// This function execution on its own has an overhead of roughly 83 us. We add a bit of buffer time to be kind of sure to schedule stuff correctly
+#define DWT_SLEEP_DWT_CORRECTION_US (100+50)
+static void sleep_until_dwt_ts(uint64_t wanted_ts) {
+    uint64_t init_ts = dwt_system_ts(ieee802154_dev);
+    uint64_t diff = DWT_TS_TO_US(((uint64_t)(wanted_ts-init_ts))&DWT_TS_MASK); // This should wrap around nicely
+
+    // We check that our sleep call might not delay us too much
+    if (diff > DWT_SLEEP_DWT_CORRECTION_US && diff < DWT_TS_TO_US(DWT_TS_MASK/2)) {
+        k_usleep(diff - DWT_SLEEP_DWT_CORRECTION_US);
     }
 }
 
 
-static inline uint64_t get_uint_duration(const ts_t *end_ts, const ts_t *start_ts){
+K_SEM_DEFINE(round_start_sem, 0, 1);
 
-    uint64_t end = ts_to_uint(end_ts);
-    uint64_t start = ts_to_uint(start_ts);
-
-    if (end == 0 || start == 0) {
-        return 0; // TODO: we might want to change this behavior
-    }
-
-    if (end < start) {
-
-        // handle overflow!
-        end += 0xFFFFFFFFFF;
-
-        if (end < start) {
-            return 0; // it is still wrong...
-        }
-    }
-
-    return end - start;
+uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
+    return UUS_TO_DWT_TS(SLOT_DUR_UUS);
 }
 
-//void on_round_end(uint16_t round_number) {
-//    if (round_number > HISTORY_NUM_ROUNDS){
-//        history_print();
-//        history_reset();
-//    }
-//}
+int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
-void on_round_end(uint16_t round_number) {
+    uint16_t exchange = slot / 3;
+    uint8_t m = slot % 3;
 
-    bool dummy = round_number <= NUM_DUMMY_ROUNDS;
+    uint16_t init = exchange / (NUM_NODES - 1);
+    uint16_t resp = exchange % (NUM_NODES - 1);
 
-    // cur_msg contains all messages of the this round
-    // last_msg contains all messages of the previous round
-
-    // we cleanup invalid values first
-
-     for(int i = 0; i < NUM_NODES; i++) {
-        if(last_msg[i].round != round_number - 1) {
-            memset(&last_msg[i], 0, sizeof(last_msg[i]));
-            //LOG_DBG("LastMsg invalid value of %d, expected %hu, got %hu", i, round_number - 1, last_msg[i].round);
-        }
-     }
-
-     for(int i = 0; i < NUM_NODES; i++) {
-        if(cur_msg[i].round != round_number) {
-            memset(&cur_msg[i], 0, sizeof(cur_msg[i]));
-            //LOG_DBG("CurMsg invalid value of %d, expected %hu, got %hu", i, round_number, cur_msg[i].round);
-        }
-     }
-
-   // determine all relative drift rates for now:
-
-    static uint64_t own_dur[NUM_NODES];
-    static uint64_t other_dur[NUM_NODES];
-    static float32_t relative_drift_offsets[NUM_NODES];
-
-    if (dummy){
-        LOG_RAW_CMD("{\"type\": \"drift_estimation\", \"dummy\": true, ");
-    }
-    else {
-       LOG_RAW_CMD("{\"type\": \"drift_estimation\", \"dummy\": false, ");
+    if(init == resp) {
+        resp = (resp+1) % NUM_NODES; // we do not want to execute a ranging with ourselves..., actually modulo should not be necessary here anyway?
     }
 
-   char buf[512];
-   snprintf(buf, sizeof(buf), "\"round\": %hu, \"durations\": [", round_number);
-    LOG_RAW_CMD(buf);
-
-   for(int i = 0; i < NUM_NODES; i++) {
-
-        uint64_t rd_other_dur, rd_own_dur = 0;
-
-        if (i == own_number) {
-           rd_other_dur = 1;
-           rd_own_dur = 1;
-        } else {
-            // we can extract last and current timestamps
-            rd_other_dur = get_uint_duration(&cur_msg[i].tx_ts, &last_msg[i].tx_ts);
-
-            if (i < own_number) {
-                // in this case, the other node transmitted before us
-                // so we have to extract rx timestamps from our own cur and last msg
-                rd_own_dur = get_uint_duration(&cur_msg[own_number].rx_ts[i], &last_msg[own_number].rx_ts[i]);
-            } else {
-                // i > own_number: in this case, the rx timestamp from the current round is actually in our current tx_buf and the last one in cur_msg
-                rd_own_dur = get_uint_duration(&msg_tx_buf.rx_ts[i], &cur_msg[own_number].rx_ts[i]);
-            }
-        }
-
-        // log values!
-        snprintf(buf, sizeof(buf), "[%llu, %llu]", rd_own_dur, rd_other_dur);
-        LOG_RAW_CMD(buf);
-
-        if (i < NUM_NODES-1) {
-            LOG_RAW_CMD(", ");
-        }
-
-        if ( rd_other_dur != 0 && rd_own_dur != 0) {
-            relative_drift_offsets[i] = (float32_t)((int64_t)rd_own_dur-(int64_t)rd_other_dur) / (float32_t)(rd_other_dur);
-        } else {
-            relative_drift_offsets[i] = NAN;
-        }
-
-        own_dur[i] = rd_own_dur;
-        other_dur[i] = rd_other_dur;
-   }
-
-   LOG_RAW_CMD("], \"carrierintegrators\": [");
-   for(int i = 0; i < NUM_NODES; i++) {
-        // log values!
-        snprintf(buf, sizeof(buf), " %d", carrierintegrators[i]);
-        LOG_RAW_CMD(buf);
-        if (i < NUM_NODES-1) {
-            LOG_RAW_CMD(", ");
-        }
-   }
-
-   LOG_RAW_CMD("]}\n");
-
-
-     if (dummy){
-        LOG_RAW_CMD("{\"type\": \"raw_measurements\", \"dummy\": true, ");
-     }
-     else {
-        LOG_RAW_CMD("{\"type\": \"raw_measurements\", \"dummy\": false, ");
-     }
-     snprintf(buf, sizeof(buf), "\"round\": %hu, \"measurements\": [", round_number);
-     LOG_RAW_CMD(buf);
-
-    // we now check every combination
-    // TODO: we might also just want to check for ourselves
-    for(int b = 0; b < NUM_NODES; b++) { // TODO: update again some time
-        for (int a = 0; a < b; a++) {
-
-            // we extract the ranging as initiated by A:
-            uint64_t round_dur_a = 0;
-            uint64_t delay_dur_b = 0;
-
-            // For TDoa
-            uint64_t tdoa_m_dur = 0; // This duration is a bit tricky to get right!
-
-
-            if (a < b) {// TODO: this is automatically given as of right now
-                // the response delay of b should be in the last_msg as well
-                delay_dur_b = get_uint_duration(&last_msg[b].tx_ts, &last_msg[b].rx_ts[a]);
-                round_dur_a = get_uint_duration(&cur_msg[a].rx_ts[b], &last_msg[a].tx_ts);
-
-                // Handle TDoA extraction
-                {
-                    if (own_number < a) {
-                        // we sent before a (and also b), hence, we need to extract the reception values from the current round
-                        tdoa_m_dur = get_uint_duration(&cur_msg[own_number].rx_ts[b], &cur_msg[own_number].rx_ts[a]);
-                    }
-                    else if ( a < own_number && own_number < b) {
-                        // we sent after a but before b, hence, the rx value for a was sent in the last round while the one for b was sent in the current one
-                        tdoa_m_dur = get_uint_duration(&cur_msg[own_number].rx_ts[b], &last_msg[own_number].rx_ts[a]);
-                    } else if (a < own_number && b < own_number) {
-                        // we sent after a and after b, hence, the rx values for both were sent in the last round
-                        tdoa_m_dur = get_uint_duration(&last_msg[own_number].rx_ts[b], &last_msg[own_number].rx_ts[a]);
-                    } else {
-                        // own_number == a or own_number == b
-                    }
-                }
-            } else {
-                // otherwise b transmitted before a, so it should reside in the current round
-                // TODO: Since we have a lot of delay between rounds, this round and delay values are too big to be handled with the necessary precision!
-                //delay_dur_b = get_uint_duration(&cur_msg[b].tx_ts, &cur_msg[b].rx_ts[a]);
-            }
-
-            if (round_dur_a != 0 && delay_dur_b != 0 && !isnan(relative_drift_offsets[a]) && !isnan(relative_drift_offsets[b])) {
-                int64_t drift_offset_int = round(relative_drift_offsets[a]*(float32_t)round_dur_a - relative_drift_offsets[b]*(float32_t)delay_dur_b);
-
-                int64_t two_tof_int = (int64_t)round_dur_a - (int64_t)delay_dur_b + drift_offset_int;
-                measurement_t tof_in_uwb_us = ((float) two_tof_int) * 0.5;
-
-                if (!dummy){
-                    estimation_add_measurement(a, b, tof_in_uwb_us);
-                }
-
-                // Handle TDoA values, given we have received a value...
-                int64_t two_tdoa_int = 0;
-                measurement_t tdoa_in_uwb_us = 0.0;
-
-                if (tdoa_m_dur != 0)
-                {
-                    int64_t tdoa_drift_offset_int = round(relative_drift_offsets[a]*(float32_t)round_dur_a + relative_drift_offsets[b]*(float32_t)delay_dur_b);
-                    two_tdoa_int = (int64_t)round_dur_a + (int64_t)delay_dur_b + tdoa_drift_offset_int - (int64_t)(2*tdoa_m_dur);
-                    tdoa_in_uwb_us = ((float) two_tdoa_int) * 0.5;
-                }
-
-                int64_t tof_int_val = tof_in_uwb_us * 1000.0f;
-                int64_t tdoa_int_val = tdoa_in_uwb_us * 1000.0f;
-                snprintf(buf, sizeof(buf), "[%llu, %llu, %lld, %lld, %lld, %lld, %lld]", round_dur_a, delay_dur_b, tof_int_val, two_tof_int, tdoa_m_dur, tdoa_int_val, two_tdoa_int);
-                LOG_RAW_CMD(buf);
-
-                float tof_est_distance_in_m = tof_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
-                int64_t tof_est_cm = tof_est_distance_in_m*100;
-
-                float tdoa_est_diff_in_m = tdoa_in_uwb_us*SPEED_OF_LIGHT_M_PER_UWB_TU;
-                int64_t tdoa_est_cm = tdoa_est_diff_in_m*100;
-
-//                if((own_number == 0 || own_number == 2 || own_number == 4)  && a == 1 && b == 3) {
-//                    LOG_DBG("Round est cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, tof_est_cm, round_dur_a, delay_dur_b);
-//                    LOG_DBG("Round TDoA cm: %hhu, %hhu, %lld, r:%lld, d: %lld", a, b, tdoa_est_cm, round_dur_a, delay_dur_b);
-//                }
-            } else {
-                LOG_RAW_CMD("null");
-            }
-
-            if (b != NUM_NODES - 1 || a < b - 1) {
-                LOG_RAW_CMD(", ");
-            }
-        }
-    }
-    LOG_RAW_CMD("]}\n");
-
-    // We now log the raw memory - just to be save!
-    {
-        LOG_RAW_CMD("{\"type\": \"raw_mem\", \"last_msg\":\"");
-        log_mem(&last_msg, sizeof(last_msg));
-        LOG_RAW_CMD("\", \"cur_msg\":\"");
-        log_mem(&cur_msg, sizeof(cur_msg));
-        LOG_RAW_CMD("\", \"tx_buf\":\"");
-        log_mem(&msg_tx_buf, sizeof(msg_tx_buf));
-        LOG_RAW_CMD("\"}\n");
+    if (m == 0 || m == 2) {
+        return init;
+    } else if(m == 1) {
+        return resp;
     }
 
-    // copy all of the current messages to the last round
-    memcpy(&last_msg, &cur_msg, sizeof(last_msg));
-
-    // reset cur_msg!
-    memset(&cur_msg, 0, sizeof(cur_msg));
+    return -1;
 }
+
 
 int main(void) {
+
 
     LOG_INF("Getting node id");
     int16_t signed_node_id = get_node_number(get_own_node_id());
@@ -365,19 +190,25 @@ int main(void) {
     // prepare msg buffer
     {
         (void)memset(&msg_tx_buf, 0, sizeof(msg_tx_buf));
-        (void)memset(&last_msg, 0, sizeof(last_msg));
-        (void)memset(&cur_msg, 0, sizeof(cur_msg));
-
-        // TODO: Add own addr!
         msg_tx_buf.number = own_number&0xFF;
         msg_tx_buf.round = 0;
-        (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
-        k_sem_give(&msg_tx_buf_sem);
     }
 
     /* Setup antenna delay values to 0 to get raw tx values */
-    dwt_set_antenna_delay_rx(ieee802154_dev, 16450);
-    dwt_set_antenna_delay_tx(ieee802154_dev, 16450);
+    uint32_t opt_delay_both = dwt_otp_antenna_delay(ieee802154_dev);
+    uint16_t rx_delay = opt_delay_both&0xFFFF; // we fully split the delay
+    uint16_t tx_delay = opt_delay_both&0xFFFF; // we fully split the delay
+
+    {
+       char buf[512];
+       snprintf(buf, sizeof(buf), "{\"event\": \"init\", \"own_number\": %hhu, \"rx_delay\": %hu, \"tx_delay\": %hu}\n", own_number, rx_delay, tx_delay);
+       log_out(buf); // this will be flushed later!
+       log_flush();
+    }
+
+
+    //dwt_set_antenna_delay_rx(ieee802154_dev, 16450);
+    //dwt_set_antenna_delay_tx(ieee802154_dev, 16450);
 
     // we disable the frame filter, otherwise the packets are not received!
     dwt_set_frame_filter(ieee802154_dev, 0, 0);
@@ -394,104 +225,178 @@ int main(void) {
 
     k_msleep(INITIAL_DELAY_MS);
 
-    // Create TX thread and queue
-    init_tx_queue();
+    {
+        uint64_t init_ts = dwt_system_ts(ieee802154_dev);
+        uint64_t wanted_ts = init_ts + UUS_TO_DWT_TS(100);
+        sleep_until_dwt_ts(wanted_ts);
+        uint64_t other_ts = dwt_system_ts(ieee802154_dev);
 
-    while (1) {
+        int64_t diff = (int64_t)other_ts - (int64_t)wanted_ts;
+        int64_t diff_us = DWT_TS_TO_US(diff);
+        LOG_INF("Blocking DWT TS initial  %llu, wanted: %llu, actual: %llu, diff %lld, diff us %lld", init_ts, wanted_ts, other_ts, diff, diff_us);
 
-        if (sent_packets > 0 && sent_packets % 1000 == 0) {
-            LOG_DBG("Sent %d packets", sent_packets);
+        init_ts = dwt_system_ts(ieee802154_dev);
+        wanted_ts = init_ts + UUS_TO_DWT_TS(TX_BUFFER_DELAY_UUS);
+        sleep_until_dwt_ts(wanted_ts);
+        other_ts = dwt_system_ts(ieee802154_dev);
+
+        diff = (int64_t)other_ts - (int64_t)wanted_ts;
+        diff_us = DWT_TS_TO_US(diff);
+        LOG_INF("SLEEPING DWT TS initial  %llu, wanted: %llu, actual: %llu, diff %lld, diff us %lld", init_ts, wanted_ts, other_ts, diff, diff_us);
+    }
+
+
+    uint16_t antenna_delay = dwt_antenna_delay_tx(ieee802154_dev);
+
+    while(cur_round < NUM_ROUNDS) {
+        LOG_INF("Starting round!");
+
+        uint64_t actual_round_start = dwt_system_ts(ieee802154_dev);
+
+        if (own_number == schedule_get_tx_node_number(cur_round, next_slot)) {
+            round_start_dwt_ts = (dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS((uint64_t)TX_BUFFER_DELAY_UUS)) & DWT_TS_MASK; // we are the first to transmit in this round!
+
+            k_sem_give(&round_start_sem);
         }
 
-        int64_t ms_since_last_msg = k_uptime_get() - last_msg_ms;
+        k_sem_take(&round_start_sem, K_FOREVER);
 
-        if (IS_INITIATOR && msg_tx_buf.round <= NUM_ROUNDS) {
-            if (schedule_next_round || ms_since_last_msg >= ROUND_TIMEOUT_MS) {
-                schedule_next_round = 0;
-                //LOG_INF("Advancing to new round! (%hu)", msg_tx_buf.round+1);
+        while(round_start_dwt_ts == 0) {
+            LOG_INF("while(round_start_dwt_ts == 0)");
+            // note that it might happen that we never got the resulting message, hence, it might be that we are absent during a round, we update the current round in the rx callback
+            k_yield(); // yield to allow rx events to happen
+        }
 
-                k_sem_take(&msg_tx_buf_sem, K_FOREVER); // we take this to be sure that on_round_end finished!
+        if (LOG_SCHEDULING && TX_BUFFER_DELAY_UUS >= 2000) {
+            char buf[512];
+            snprintf(buf, sizeof(buf), "{\"event\": \"round_start\", \"own_number\": %hhu, \"round\": %u, \"round_start\": %llu, \"round_start_us\": %llu, \"cur_us\": %llu}", own_number, cur_round, round_start_dwt_ts, DWT_TS_TO_US(round_start_dwt_ts), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)));
+            log_out(buf);
+        }
 
-                // we then add more delay!
-                k_msleep(POST_ROUND_DELAY_MS);
+        uint64_t next_slot_tx_ts = round_start_dwt_ts;
 
-                msg_tx_buf.round += 1;
-                k_sem_give(&tx_sem);
-
-                k_sem_give(&msg_tx_buf_sem);
-
-                round_start = k_uptime_get();
-                round_end = 0;
+        if (next_slot > 0) {
+            // seems like we start not on the first slot (happens when we are not initializing the round!)
+            for(uint32_t s = 0; s < next_slot; s++) {
+                next_slot_tx_ts += schedule_get_slot_duration_dwt_ts(cur_round, s);
             }
+            next_slot_tx_ts = next_slot_tx_ts & DWT_TS_MASK;
         }
 
-        if (msg_tx_buf.round >= 2 && ms_since_last_msg >= FINAL_ESTIMATION_TIMEOUT_MS) {
-               k_sem_take(&msg_tx_buf_sem, K_FOREVER);
-               estimate_all(msg_tx_buf.round);
-               k_sem_give(&msg_tx_buf_sem);
-//            // we reset all messages! since the drift is kind of high
-//            (void)memset(&last_msg, 0, sizeof(last_msg));
-//            (void)memset(&cur_msg, 0, sizeof(cur_msg));
-//            (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
-//            (void)memset(&carrierintegrators, 0, sizeof(carrierintegrators));
-            return 0;
+        // round_start should be now set!
+        while(next_slot < NUM_SLOTS) {
+
+            uint64_t next_slot_dur_ts = schedule_get_slot_duration_dwt_ts(cur_round, next_slot);
+            int16_t slot_tx_id = schedule_get_tx_node_number(cur_round, next_slot);
+
+            if (own_number == slot_tx_id) {
+                //k_thread_priority_set(k_current_get(), K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)); // we are a bit time sensitive from here on now ;)
+                k_thread_priority_set(k_current_get(), K_HIGHEST_THREAD_PRIO); // we are a bit time sensitive from here on now ;)
+
+                struct net_pkt *pkt = NULL;
+                struct net_buf *buf = NULL;
+                size_t len = sizeof (msg_header)+sizeof(msg_tx_buf);
+
+                /* Maximum 2 bytes are added to the len */
+                while(pkt == NULL) {
+                    pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0, K_MSEC(100));//K_NO_WAIT);
+                    if (!pkt) {
+                        LOG_WRN("COULD NOT ALLOCATE MEMORY FOR PACKET!");
+                    }
+                }
+
+                buf = net_buf_frag_last(pkt->buffer);
+                len = net_pkt_get_len(pkt);
+
+                struct net_ptp_time ts;
+                ts.second = 0;
+                ts.nanosecond = 0;
+
+                net_pkt_set_timestamp(pkt, &ts);
+
+                net_pkt_write(pkt, msg_header, sizeof(msg_header));
+
+                // update current values
+                msg_tx_buf.round = cur_round;
+                msg_tx_buf.slot = next_slot;
+
+
+                // all other entries are updated in the rx event!
+                net_pkt_write(pkt, &msg_tx_buf, sizeof(msg_tx_buf));
+
+                uint32_t planned_tx_short_ts = next_slot_tx_ts >> 8;
+                dwt_set_delayed_tx_short_ts(ieee802154_dev, planned_tx_short_ts);
+
+                uint64_t tx_invoke_ts = dwt_system_ts(ieee802154_dev);
+                // WE NEED COOP PRIORITY otherwise we are verryb likely to miss our tx window
+                ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_TXTIME, pkt, buf);
+
+                k_thread_priority_set(k_current_get(), K_HIGHEST_APPLICATION_THREAD_PRIO); // we are less time sensitive from here on now ;)
+
+                net_pkt_unref(pkt);
+
+
+                if (history_save_tx(own_number, cur_round, next_slot, next_slot_dur_ts)) {
+                    LOG_WRN("Could not save TX to history");
+                }
+
+                if (LOG_SCHEDULING && DWT_TS_TO_US(next_slot_dur_ts) >= 2000) {
+                    char buf[512];
+                    snprintf(buf, sizeof(buf), "{\"event\": \"slot_start\", \"own_number\": %hhu, \"round\": %u, \"slot\": %u, \"slot_start\": %llu, \"slot_start_us\": %llu, \"tx_invoke_ts_us\": %llu, \"actual_round_start_us\": %llu}\n", own_number, cur_round, next_slot, next_slot_tx_ts, DWT_TS_TO_US(next_slot_tx_ts), DWT_TS_TO_US(tx_invoke_ts), DWT_TS_TO_US(actual_round_start));
+                    log_out(buf);
+                }
+
+            } else {
+                // TODO: some debugging stuff!
+//                if (history_save_rx(own_number, 125, cur_round, next_slot, 1, 2, 3, 4, 5)) {
+//                    LOG_WRN("Could not save RX to history");
+//                }
+
+
+                // TODO: we could do stuff here but whatever ;)
+                // we should receive packets though, let's see how
+
+                if (LOG_SCHEDULING && DWT_TS_TO_US(next_slot_dur_ts) >= 2000000) {
+                    log_flush();
+                }
+
+                sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts+(uint64_t)next_slot_dur_ts-(uint64_t)UUS_TO_DWT_TS(TX_BUFFER_DELAY_UUS))& DWT_TS_MASK);
+                // TODO: Maybe we can print some log output here?
+            }
+
+            // we are already in the next slot, set the next slot tx timestamp accordingly
+            next_slot_tx_ts = (next_slot_tx_ts + next_slot_dur_ts) & DWT_TS_MASK;
+            next_slot++;
         }
 
-        k_msleep(1);
-        k_yield();
+        if (LOG_SCHEDULING) {
+            char buf[512];
+            // TODO: it is quite possible that this logging breaks the start of the round already!!!
+            snprintf(buf, sizeof(buf), "{\"event\": \"round_end\", \"own_number\": %hhu, \"round\": %u, \"round_start_us\": %llu, \"cur_us\": %llu, \"actual_round_start_us\": %llu}\n", own_number, cur_round, DWT_TS_TO_US(round_start_dwt_ts), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)), DWT_TS_TO_US(actual_round_start));
+            log_out(buf);
+        }
+
+        last_round_start_dwt_ts = round_start_dwt_ts;
+        next_slot = 0; // we restart the round
+        round_start_dwt_ts = 0;
+        cur_round++;
+
+        // After every round, we flush all of our logs
+        uint64_t before_flush_us = dwt_system_ts(ieee802154_dev);
+        size_t log_count = history_count();
+
+        history_print();
+        history_reset();
+
+        LOG_INF("Flushing before us, after us: %llu, %llu, count %d", DWT_TS_TO_US(before_flush_us), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)), log_count);
+
+        // sleep until next round! Note that we just increased the cur_round counter!
+        if (own_number == schedule_get_tx_node_number(cur_round, next_slot)) {
+            sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev) + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
+        }
     }
+
     return 0;
-}
-
-static void net_pkt_hexdump(struct net_pkt *pkt, const char *str)
-{
-    struct net_buf *buf = pkt->buffer;
-
-    while (buf) {
-        LOG_HEXDUMP_DBG(buf->data, buf->len, str);
-        buf = buf->frags;
-    }
-}
-
-static void output_msg_to_uart(struct msg* m) {
-
-    char buf[256];
-
-    // write open parentheses
-    uart_out("{");
-
-    // write round
-    snprintf(buf, sizeof(buf), "\"round\": %hu", m->round);
-    uart_out(buf);
-    uart_out(", ");
-
-    // write number
-    snprintf(buf, sizeof(buf), "\"number\": %hhu", m->number);
-    uart_out(buf);
-    uart_out(", ");
-
-    // write tx ts
-    uint64_t ts = ts_to_uint(&m->tx_ts);
-    snprintf(buf, sizeof(buf), "\"tx_ts\": %llu", ts);
-    uart_out(buf);
-    uart_out(", ");
-
-
-    // write all rx ts:
-    uart_out("\"rx_ts: \": [");
-    for(size_t i = 0; i < NUM_NODES; i ++) {
-        ts = ts_to_uint(&m->rx_ts[i]);
-        snprintf(buf, sizeof(buf), "%llu", ts);
-        uart_out(buf);
-
-        if (i < NUM_NODES-1) {
-            uart_out(", ");
-        }
-    }
-    uart_out("]");
-
-    // end msg
-    uart_out("}");
 }
 
 
@@ -527,78 +432,37 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
             // TODO: CHECK IF WE would need to ignore this msg
             uint8_t rx_number = rx_msg->number;
             uint16_t rx_round = rx_msg->round;
+            uint16_t rx_slot = rx_msg->slot;
 
             //LOG_DBG("Received (n: %hhu, r: %hu)", rx_number, rx_round);
 
             uint64_t rx_ts = dwt_rx_ts(ieee802154_dev);
             int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
-
-            carrierintegrators[rx_number] = carrierintegrator;
-
             int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);
-
             int8_t bias_correction = get_range_bias_by_rssi(rssi);
-            rx_ts -= bias_correction;
+            uint64_t bias_corrected_rx_ts = rx_ts - bias_correction;
 
-            // save this message for later processing
-            memcpy(&cur_msg[rx_number], rx_msg, sizeof(struct msg));
-
-            // and save it for potential printing
-            history_save(rx_msg, rssi, bias_correction, carrierintegrator);
-
-            last_msg_ms = k_uptime_get(); // we save this value to restart the round when we are the initiator
-
-            k_sem_take(&msg_tx_buf_sem, K_FOREVER);
+            // Log the message!
             {
-                // save this ts in our tx buf!
-                ts_from_uint(&msg_tx_buf.rx_ts[rx_number], rx_ts);
-
-                // we wait for the packet of our predecessor
-                if (!IS_INITIATOR && rx_number == msg_tx_buf.number-1) {
-                    if (rx_round == msg_tx_buf.round + 1) {
-                        // we can advance to the new round without problems
-                    } else {
-                        // this is problematic!
-                        if (rx_round <= msg_tx_buf.round) {
-                            LOG_WRN("Received outdated round from predecessor!!!"); // this is NOT good
-                            // TODO: how to handle this case?
-                        } else {
-                            LOG_INF("Values seem outdated... Resetting...my: %d, rx: %d", msg_tx_buf.round, rx_round); // note that we can waste time in this case since we are the next to transmit anyway!
-                            // the received round is a lot more progressed than we are
-                            // we hence cannot be sure that our received timestamps are still valid and reset them!
-                            // we reset the tx_buf Note that we still hold msg_tx_buf_sem
-                            (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
-                        }
-                    }
-
-                    round_start = k_uptime_get();
-                    round_end = 0;
-
-                    msg_tx_buf.round = MAX(msg_tx_buf.round, rx_round); // use new updated round number in any case
-                    k_sem_give(&tx_sem);
-
-                    //LOG_DBG("Starting new round! (n: %hhu, r: %hu)", msg_tx_buf.number, msg_tx_buf.round);
-                } else if (rx_number == NUM_NODES-1) {
-                    // oh wow, this was the last one!
-                    int64_t milliseconds_spent = k_uptime_delta(&round_start);
-                    //LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
-                    on_round_end(msg_tx_buf.round);
-
-                    if (IS_INITIATOR){
-                        schedule_next_round = 1;
-                    }
+                if (history_save_rx(own_number, rx_number, rx_round, rx_slot, rx_ts, carrierintegrator, rssi, bias_correction, bias_corrected_rx_ts)) {
+                    LOG_WRN("Could not save RX to history");
                 }
             }
-            k_sem_give(&msg_tx_buf_sem);
 
-            //num_receptions++;
-            //int carrierintegrator = dwt_readcarrierintegrator(ieee802154_dev);
-            // and simply dump this whole message to the output
-            //output_msg_to_uart("rx", rx_msg, num_msg, &carrierintegrator, &rssi);
+            if (rx_slot == 0) {
+                if (rx_round > cur_round) {
+                    cur_round = rx_round; // we must have missed a round!
+                }
+
+                next_slot = 1; // first set the next slot!
+                round_start_dwt_ts = rx_ts; // TODO: we neglect any airtime and other delays at this point but it should be "good enough"
+                k_sem_give(&round_start_sem);
+            }
+
+            LOG_INF("RX Event");
 
         } else {
             LOG_WRN("Got weird data of length %d", len);
-            net_pkt_hexdump(pkt, "<");
         }
     } else {
         LOG_WRN("Got WRONG data, pkt %p, len %d", pkt, len);
@@ -607,126 +471,4 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
     net_pkt_unref(pkt);
 
     return ret;
-}
-
-static int transmit() {
-
-        struct net_pkt *pkt = NULL;
-        struct net_buf *buf = NULL;
-
-        size_t len = sizeof (msg_header)+sizeof(msg_tx_buf);
-
-        /* Maximum 2 bytes are added to the len */
-
-        while(pkt == NULL) {
-            pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0, K_MSEC(100));//K_NO_WAIT);
-            if (!pkt) {
-                LOG_WRN("COULD NOT ALLOCATE MEMORY FOR PACKET!");
-            }
-        }
-
-        buf = net_buf_frag_last(pkt->buffer);
-        len = net_pkt_get_len(pkt);
-
-        //LOG_DBG("Send pkt %p buf %p len %d", pkt, buf, len);
-
-        //LOG_HEXDUMP_DBG(buf->data, buf->len, "TX Data");
-
-        // transmit the packet
-        int ret;
-        {
-
-            uint64_t uus_delay = 900; // what value to choose here? Depends on the processor etc!
-            uint64_t estimated_ts = 0;
-
-            struct net_ptp_time ts;
-            ts.second = 0;
-            ts.nanosecond = 0;
-            net_pkt_set_timestamp(pkt, &ts);
-
-            net_pkt_write(pkt, msg_header, sizeof(msg_header));
-
-            k_sem_take(&msg_tx_buf_sem, K_FOREVER);
-            // START OF TIMING SENSITIVE
-            {
-                estimated_ts = dwt_plan_delayed_tx(ieee802154_dev, uus_delay);
-
-                // put planned ts into the packet!
-
-                ts_from_uint(&msg_tx_buf.tx_ts, estimated_ts);
-
-                // all other entries are updated in the rx event!
-                net_pkt_write(pkt, &msg_tx_buf, sizeof(msg_tx_buf));
-                ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_TXTIME, pkt, buf);
-            }
-            // END OF TIMING SENSITIVE
-
-            if (ret) {
-                LOG_ERR("TX: Error transmitting data!");
-            } else {
-
-                //output_msg_to_uart("tx", msg_tx_buf, MIN(NUM_MSG_TS, num_receptions+1), NULL, NULL);
-
-                //msg_tx_buf[0].sn++;
-                //sent_packets++;
-
-                //uint64_t estimated_ns = dwt_ts_to_fs(estimated_ts) / 1000000U;
-                //struct net_ptp_time *actual_ts = net_pkt_timestamp(pkt);
-                //uint64_t actual_ns = actual_ts->second * 1000000000U + actual_ts->nanosecond;
-                //LOG_DBG("TX: Estimated %llu Actual %llu", estimated_ns, actual_ns);
-
-                // we also save our own message before resetting it
-                memcpy(&cur_msg[own_number], &msg_tx_buf, sizeof(struct msg));
-                history_save(&msg_tx_buf, 0, 0, 0);
-
-                // we reset the tx_buf Note that we still hold msg_tx_buf_sem
-                (void)memset(&msg_tx_buf.rx_ts, 0, sizeof(msg_tx_buf.rx_ts));
-
-                if (own_number == NUM_NODES-1) {
-                    // oh wow, this was the last one! -> we end the round now
-                    int64_t milliseconds_spent = k_uptime_delta(&round_start);
-                    //LOG_INF("ROUND FINISHED! ms: %lld", milliseconds_spent);
-                    on_round_end(msg_tx_buf.round);
-                }
-            }
-            k_sem_give(&msg_tx_buf_sem);
-        }
-
-        net_pkt_unref(pkt);
-        return ret;
-}
-
-/**
- * Stack for the tx thread.
- */
-static K_THREAD_STACK_DEFINE(tx_stack, 2048);
-static struct k_thread tx_thread_data;
-static void tx_thread(void);
-static struct k_fifo tx_queue;
-
-#define TX_THREAD_PRIORITY K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)
-static void init_tx_queue(void)
-{
-    /* Transmit queue init */
-    k_fifo_init(&tx_queue);
-
-    k_thread_create(&tx_thread_data, tx_stack,
-                    K_THREAD_STACK_SIZEOF(tx_stack),
-                    (k_thread_entry_t)tx_thread,
-                    NULL, NULL, NULL, TX_THREAD_PRIORITY, 0, K_NO_WAIT);
-}
-
-
-
-
-static void tx_thread(void)
-{
-    LOG_DBG("TX thread started");
-
-    while (true) {
-        k_sem_take(&tx_sem, K_FOREVER);
-        last_msg_ms = k_uptime_get();
-        k_msleep(SLOT_DELAY_MS); // we sleep a bit to make sure that everyone receives our messages.
-        transmit();
-    }
 }

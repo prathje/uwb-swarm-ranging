@@ -7,148 +7,108 @@
 #include <stdio.h>
 
 #include "history.h"
-#include "uart.h"
+#include "log.h"
 
-#if HISTORY_LENGTH > 0
+#define HISTORY_LENGTH 1024
+
+K_SEM_DEFINE(hist_buf_sem, 1, 1);
 
 struct __attribute__((__packed__)) history_record {
-    struct msg msg;
+    uint8_t txrx_number; // of rx_number == own_number it was a tx!
+    uint8_t own_number;
     int8_t rssi;
-    int8_t applied_bias_correction;
-    int carrierintegrator;
+    int8_t bias_correction;
+    uint16_t txrx_round;
+    uint16_t txrx_slot;
+    uint64_t txrx_ts;
+    uint64_t bias_corrected_rx_ts;
+    int32_t carrierintegrator;
 };
 
 static int num_stored = 0;
 
-static struct history_record history[HISTORY_NUM_ROUNDS*NUM_NODES];
+static struct history_record history[HISTORY_LENGTH] = {0};
 
 void history_reset() {
+    k_sem_take(&hist_buf_sem, K_FOREVER);
     memset(&history, 0, sizeof(history));
     num_stored = 0;
+    k_sem_give(&hist_buf_sem);
 }
 
-void history_save(struct msg *msg, int8_t rssi, int8_t applied_bias_correction, int carrierintegrator) {
+size_t history_count() {
+    return num_stored;
+}
+
+int history_save_rx(uint8_t own_number, uint8_t rx_number, uint16_t rx_round, uint16_t rx_slot, uint64_t rx_ts, int32_t carrierintegrator, int8_t rssi, int8_t bias_correction, uint64_t bias_corrected_rx_ts) {
+    k_sem_take(&hist_buf_sem, K_FOREVER);
 
     if (num_stored == HISTORY_LENGTH -1){
-        return;
+        k_sem_give(&hist_buf_sem);
+        return -1;
     }
-
-    num_stored += 1;
 
     struct history_record *h = &history[num_stored];
-    h->msg = *msg; //copy everything!
+
+    h->txrx_number = rx_number; // of rx_number == own_number it was a tx!
+    h->own_number = own_number;
     h->rssi = rssi;
-    h->applied_bias_correction = applied_bias_correction;
+    h->bias_correction = bias_correction;
+    h->txrx_round = rx_round;
+    h->txrx_slot = rx_slot;
+    h->txrx_ts = rx_ts;
+    h->bias_corrected_rx_ts = bias_corrected_rx_ts;
     h->carrierintegrator = carrierintegrator;
+
+    num_stored++;
+
+    k_sem_give(&hist_buf_sem);
+    return 0;
 }
 
-static inline uint64_t ts_to_uint(const ts_t *ts) {
-    uint8_t buf[sizeof(uint64_t)] = {0};
-    memcpy(&buf, ts, sizeof(ts_t));
-    return sys_get_le64(buf);
-}
+int history_save_tx(uint8_t own_number, uint16_t tx_round, uint16_t tx_slot, uint64_t tx_ts) {
+    k_sem_take(&hist_buf_sem, K_FOREVER);
 
-static void output_msg_to_uart(struct msg* m) {
-
-    char buf[256];
-
-    // write open parentheses
-    uart_out("{");
-
-    // write round
-    snprintf(buf, sizeof(buf), "\"round\": %hu", m->round);
-    uart_out(buf);
-    uart_out(", ");
-
-    // write number
-    snprintf(buf, sizeof(buf), "\"number\": %hhu", m->number);
-    uart_out(buf);
-    uart_out(", ");
-
-    // write tx ts
-    uint64_t ts = ts_to_uint(&m->tx_ts);
-    snprintf(buf, sizeof(buf), "\"tx_ts\": %llu", ts);
-    uart_out(buf);
-    uart_out(", ");
-
-
-    // write all rx ts:
-    uart_out("\"rx_ts: \": [");
-    for(size_t i = 0; i < NUM_NODES; i ++) {
-        ts = ts_to_uint(&m->rx_ts[i]);
-        snprintf(buf, sizeof(buf), "%llu", ts);
-        uart_out(buf);
-
-        if (i < NUM_NODES-1) {
-            uart_out(", ");
-        }
-    }
-    uart_out("]");
-
-    // end msg
-    uart_out("}");
-}
-
-static void output_record_to_uart(struct history_record* m) {
-
-    char buf[256];
-
-    // write open parentheses
-    uart_out("{");
-
-    uart_out("\"msg\":");
-    output_msg_to_uart(&m->msg);
-    uart_out(", ");
-
-    // write rssi
-    snprintf(buf, sizeof(buf), "\"rssi\": %hhd", m->rssi);
-    uart_out(buf);
-    uart_out(", ");
-
-    // write applied_bias_correction
-    snprintf(buf, sizeof(buf), "\"bias\": %hhd", m->applied_bias_correction);
-    uart_out(buf);
-    uart_out(", ");
-
-    // write carrierintegrator
-    snprintf(buf, sizeof(buf), "\"ci\": %d", m->carrierintegrator);
-    uart_out(buf);
-
-    // end msg
-    uart_out("}");
-}
-
-
-void history_print_entries() {
-
-    // we simply dump all recorded records!
-     char buf[256];
-
-    // write open parentheses
-    uart_out("[");
-
-    for(int i = 0; i < num_stored; i++) {
-        output_record_to_uart(&history[i]);
-           if (i < num_stored-1) {
-            uart_out(", ");
-        }
+    if (num_stored == HISTORY_LENGTH -1){
+        k_sem_give(&hist_buf_sem);
+        return -1;
     }
 
-    // write close parentheses
-    uart_out("]");
+    struct history_record *h = &history[num_stored];
+
+    h->txrx_number = own_number; // of rx_number == own_number it was a tx!
+    h->own_number = own_number;
+    h->txrx_round = tx_round;
+    h->txrx_slot = tx_slot;
+    h->txrx_ts = tx_ts;
+    h->rssi = 0;
+    h->bias_correction = 0;
+    h->bias_corrected_rx_ts = 0;
+    h->carrierintegrator = 0;
+
+    num_stored++;
+
+    k_sem_give(&hist_buf_sem);
+    return 0;
 }
+
 
 void history_print() {
-    uart_out("{\"type\": \"history\", \"entries\": ");
-    history_print_entries();
-    uart_out("}");
+
+    k_sem_take(&hist_buf_sem, K_FOREVER);
+
+    char buf[512];
+    for (size_t i = 0; i < num_stored; i++) {
+
+        struct history_record *h = &history[i];
+
+        if (h->own_number != h->txrx_number) {
+            snprintf(buf, sizeof(buf), "{\"event\": \"rx\", \"own_number\": %hhu, \"rx_number\": %hhu, \"rx_round\": %hu, \"rx_slot\": %hu, \"rx_ts\": %llu, \"ci\": %d, \"rssi\": %hhd, \"bias_correction\": %hhd, \"bias_corrected_rx_ts\": %llu}\n", h->own_number, h->txrx_number, h->txrx_round, h->txrx_slot, h->txrx_ts, h->carrierintegrator, h->rssi, h->bias_correction, h->bias_corrected_rx_ts);
+        } else {
+            // this is a transmission.
+            snprintf(buf, sizeof(buf), "{\"event\": \"tx\", \"own_number\": %hhu, \"tx_round\": %hu, \"tx_slot\": %hu, \"tx_ts\": %llu}\n", h->own_number, h->txrx_round, h->txrx_slot, h->txrx_ts);
+        }
+        uart_out(buf);
+    }
+    k_sem_give(&hist_buf_sem);
 }
-
-#else
-// no history is saved! -> NOOP!
-
-void history_reset();
-void history_save(struct msg *msg, int8_t rssi, int8_t applied_bias_correction, int carrierintegrator) {}
-void history_print() {}
-
-#endif
