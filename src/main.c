@@ -23,15 +23,15 @@ LOG_MODULE_REGISTER(main);
 #define SLOT_DUR_UUS 2000
 #define TX_BUFFER_DELAY_UUS 1000
 #define POST_ROUND_DELAY_UUS 2000000
-#define PRE_ROUND_DELAY_UUS 5000
+#define PRE_ROUND_DELAY_UUS 500000
 #define DWT_TS_MASK (0xFFFFFFFFFF)
 
 // Debug values
-#define SLOT_DUR_UUS 2000000
-#define TX_BUFFER_DELAY_UUS 500000
+//#define SLOT_DUR_UUS 2000000
+//#define TX_BUFFER_DELAY_UUS 500000
 
 
-#define LOG_SCHEDULING 1
+#define LOG_SCHEDULING 0
 
 #define ROUND_DUR_US (NUM_SLOTS*SLOT_DUR_US+POST_ROUND_DELAY_US)
 
@@ -223,7 +223,8 @@ int main(void) {
         return false;
     }
 
-    k_msleep(INITIAL_DELAY_MS);
+    // Sleep in DWT time to have enough time before the round starts.
+    sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS(INITIAL_DELAY_MS*1000) & DWT_TS_MASK);
 
     {
         uint64_t init_ts = dwt_system_ts(ieee802154_dev);
@@ -249,23 +250,17 @@ int main(void) {
     uint16_t antenna_delay = dwt_antenna_delay_tx(ieee802154_dev);
 
     while(cur_round < NUM_ROUNDS) {
-        LOG_INF("Starting round!");
+        //LOG_INF("Starting round!");
 
         uint64_t actual_round_start = dwt_system_ts(ieee802154_dev);
 
         if (own_number == schedule_get_tx_node_number(cur_round, next_slot)) {
-            round_start_dwt_ts = (dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS((uint64_t)TX_BUFFER_DELAY_UUS)) & DWT_TS_MASK; // we are the first to transmit in this round!
+            round_start_dwt_ts = (dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS((uint64_t)TX_BUFFER_DELAY_UUS)+UUS_TO_DWT_TS(PRE_ROUND_DELAY_UUS)) & DWT_TS_MASK; // we are the first to transmit in this round!
 
             k_sem_give(&round_start_sem);
         }
 
         k_sem_take(&round_start_sem, K_FOREVER);
-
-        while(round_start_dwt_ts == 0) {
-            LOG_INF("while(round_start_dwt_ts == 0)");
-            // note that it might happen that we never got the resulting message, hence, it might be that we are absent during a round, we update the current round in the rx callback
-            k_yield(); // yield to allow rx events to happen
-        }
 
         if (LOG_SCHEDULING && TX_BUFFER_DELAY_UUS >= 2000) {
             char buf[512];
@@ -277,10 +272,7 @@ int main(void) {
 
         if (next_slot > 0) {
             // seems like we start not on the first slot (happens when we are not initializing the round!)
-            for(uint32_t s = 0; s < next_slot; s++) {
-                next_slot_tx_ts += schedule_get_slot_duration_dwt_ts(cur_round, s);
-            }
-            next_slot_tx_ts = next_slot_tx_ts & DWT_TS_MASK;
+            next_slot_tx_ts = (next_slot_tx_ts + schedule_get_slot_duration_dwt_ts(cur_round, next_slot-1)) & DWT_TS_MASK;
         }
 
         // round_start should be now set!
@@ -390,10 +382,7 @@ int main(void) {
 
         LOG_INF("Flushing before us, after us: %llu, %llu, count %d", DWT_TS_TO_US(before_flush_us), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)), log_count);
 
-        // sleep until next round! Note that we just increased the cur_round counter!
-        if (own_number == schedule_get_tx_node_number(cur_round, next_slot)) {
-            sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev) + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
-        }
+        sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev) + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
     }
 
     return 0;
@@ -459,7 +448,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 k_sem_give(&round_start_sem);
             }
 
-            LOG_INF("RX Event");
+            //LOG_INF("RX Event");
 
         } else {
             LOG_WRN("Got weird data of length %d", len);

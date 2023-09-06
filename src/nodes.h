@@ -5,7 +5,7 @@
 #include <logging/log.h>
 #include <stdio.h>
 
-#define NUM_NODES 3
+#define NUM_NODES 14
 
 #define SLOTS_PER_EXCHANGE 3
 #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
