@@ -22,8 +22,9 @@ LOG_MODULE_REGISTER(main);
 #define INITIAL_DELAY_MS 5000
 #define SLOT_DUR_UUS 2000
 #define TX_BUFFER_DELAY_UUS 1000
-#define POST_ROUND_DELAY_UUS 2000000
-#define PRE_ROUND_DELAY_UUS 500000
+#define TX_INVOKE_MIN_DELAY_UUS 500
+#define POST_ROUND_DELAY_UUS 10000000
+#define PRE_ROUND_DELAY_UUS 5000000
 #define DWT_TS_MASK (0xFFFFFFFFFF)
 
 // Debug values
@@ -320,13 +321,15 @@ int main(void) {
                 dwt_set_delayed_tx_short_ts(ieee802154_dev, planned_tx_short_ts);
 
                 uint64_t tx_invoke_ts = dwt_system_ts(ieee802154_dev);
+
+                // Check that we are not overflowing, i.e. that we are not too late with the tx invocation here! (otherwise we will get a warning which destroys all of our timing...)
+                if ((uint64_t)(next_slot_tx_ts-(tx_invoke_ts+DWT_TS_TO_US(TX_INVOKE_MIN_DELAY_UUS))) < DWT_TS_MASK/2) {
+                    ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_TXTIME, pkt, buf);
+                }
+
                 // WE NEED COOP PRIORITY otherwise we are verryb likely to miss our tx window
-                ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_TXTIME, pkt, buf);
-
                 k_thread_priority_set(k_current_get(), K_HIGHEST_APPLICATION_THREAD_PRIO); // we are less time sensitive from here on now ;)
-
                 net_pkt_unref(pkt);
-
 
                 if (history_save_tx(own_number, cur_round, next_slot, next_slot_dur_ts)) {
                     LOG_WRN("Could not save TX to history");
@@ -382,7 +385,7 @@ int main(void) {
 
         LOG_INF("Flushing before us, after us: %llu, %llu, count %d", DWT_TS_TO_US(before_flush_us), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)), log_count);
 
-        sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev) + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
+        sleep_until_dwt_ts(before_flush_us + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
     }
 
     return 0;
@@ -438,12 +441,9 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 }
             }
 
-            if (rx_slot == 0) {
-                if (rx_round > cur_round) {
-                    cur_round = rx_round; // we must have missed a round!
-                }
-
-                next_slot = 1; // first set the next slot!
+            if (next_slot == 0) {
+                cur_round = MAX(cur_round, rx_round); // we might have missed a round!
+                next_slot = rx_slot+1; // this should always be > 0 so we do not execute this thing twice...
                 round_start_dwt_ts = rx_ts; // TODO: we neglect any airtime and other delays at this point but it should be "good enough"
                 k_sem_give(&round_start_sem);
             }
