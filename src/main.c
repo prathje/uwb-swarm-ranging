@@ -331,7 +331,7 @@ int main(void) {
                 k_thread_priority_set(k_current_get(), K_HIGHEST_APPLICATION_THREAD_PRIO); // we are less time sensitive from here on now ;)
                 net_pkt_unref(pkt);
 
-                if (history_save_tx(own_number, cur_round, next_slot, next_slot_dur_ts)) {
+                if (history_save_tx(own_number, cur_round, next_slot, next_slot_tx_ts)) {
                     LOG_WRN("Could not save TX to history");
                 }
 
