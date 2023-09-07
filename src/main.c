@@ -331,7 +331,10 @@ int main(void) {
                 k_thread_priority_set(k_current_get(), K_HIGHEST_APPLICATION_THREAD_PRIO); // we are less time sensitive from here on now ;)
                 net_pkt_unref(pkt);
 
-                if (history_save_tx(own_number, cur_round, next_slot, next_slot_tx_ts)) {
+                uint64_t actual_tx_ts = (((uint64_t)(planned_tx_short_ts & 0xFFFFFFFEUL)) << 8) + antenna_delay;
+
+                // Note that the actual tx time is not the planned one for the slot!
+                if (history_save_tx(own_number, cur_round, next_slot, actual_tx_ts)) {
                     LOG_WRN("Could not save TX to history");
                 }
 
