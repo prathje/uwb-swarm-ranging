@@ -460,8 +460,10 @@ print(((gb['twr_tof']).mean() - gb['dist'].mean()).to_string())
 
 
 print("STD")
-print(gb['twr_tof'].std().to_string())
+print((gb['twr_tof'].std()*100).to_string())
 
+print("Count")
+print((gb['twr_tof'].count()).to_string())
 
 
 
