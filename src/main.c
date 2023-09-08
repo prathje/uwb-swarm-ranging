@@ -17,14 +17,15 @@ LOG_MODULE_REGISTER(main);
 
 #define LOG_FLUSH_DIRECTLY 0
 
-#define NUM_ROUNDS (10)
+#define NUM_ROUNDS (500)
 
 #define INITIAL_DELAY_MS 5000
 #define SLOT_DUR_UUS 2000
 #define TX_BUFFER_DELAY_UUS 1000
 #define TX_INVOKE_MIN_DELAY_UUS 500
-#define POST_ROUND_DELAY_UUS 10000000
-#define PRE_ROUND_DELAY_UUS 5000000
+
+// This delays has to be below 17/2 s
+#define PRE_ROUND_DELAY_UUS 8000000
 #define DWT_TS_MASK (0xFFFFFFFFFF)
 
 // Debug values
@@ -145,7 +146,7 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
     uint16_t init = exchange / (NUM_NODES - 1);
     uint16_t resp = exchange % (NUM_NODES - 1);
 
-    if(init == resp) {
+    if(init <= resp) {
         resp = (resp+1) % NUM_NODES; // we do not want to execute a ranging with ourselves..., actually modulo should not be necessary here anyway?
     }
 
@@ -257,7 +258,6 @@ int main(void) {
 
         if (own_number == schedule_get_tx_node_number(cur_round, next_slot)) {
             round_start_dwt_ts = (dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS((uint64_t)TX_BUFFER_DELAY_UUS)+UUS_TO_DWT_TS(PRE_ROUND_DELAY_UUS)) & DWT_TS_MASK; // we are the first to transmit in this round!
-
             k_sem_give(&round_start_sem);
         }
 
@@ -388,7 +388,7 @@ int main(void) {
 
         LOG_INF("Flushing before us, after us: %llu, %llu, count %d", DWT_TS_TO_US(before_flush_us), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)), log_count);
 
-        sleep_until_dwt_ts(before_flush_us + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
+        //sleep_until_dwt_ts(before_flush_us + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
     }
 
     return 0;
