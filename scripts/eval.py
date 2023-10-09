@@ -1323,6 +1323,110 @@ def export_tdoa_simulation_response_std(config, export_dir):
     plt.close()
 
 
+def export_tof_simulation_response_std(config, export_dir):
+
+    from sim_tdoa import sim
+
+    limit = 6.0
+    step = 0.1
+    response_delay_exps = np.arange(-limit, limit+step, step)
+
+    xs = response_delay_exps
+    num_sims = 100000
+    num_repetitions = 1
+    resp_delay_s = 1.0
+
+    def proc():
+        data_rows = []
+        for x in xs:
+
+            _, _, _, res = sim(
+                num_exchanges=num_sims,
+                resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
+                node_drift_std=100.0/1000000.0,
+                rx_noise_std=1.0e-09,
+                tx_delay_mean=0.0,
+                tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+            )
+
+            data_rows.append(
+                {
+                    'rdr': x,
+                    'tof_mean': 1.0e09*res['est_tof_a'].mean(),
+                    'tof_std': 1.0e09*res['est_tof_a'].std(),
+                }
+            )
+
+        return data_rows
+
+    data_rows = cached(('export_tdoa_simulation_response_mean', limit, step, 10, num_sims, resp_delay_s), proc)
+
+    print(data_rows)
+
+    df = pd.DataFrame(data_rows)
+    print("min tof std", df['tof_std'].min())
+
+    df = df.rename(columns={"tof_mean": "ToF Mean", "tof_std": "ToF SD"})
+
+    plt.clf()
+    ax = df.plot.line(x='rdr', y=['ToF Mean'])
+
+    #ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
+
+    #plt.ylim(0.2, 1.8)
+
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Delay Ratio $\\frac{D_A}{D_B}$")
+    ax.set_ylabel("Sample SD [ns]")
+
+    from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+
+    #ax.yaxis.set_major_locator(MultipleLocator(1.0))
+    #ax.yaxis.set_minor_locator(MultipleLocator(0.2))
+
+
+    # counter = 0
+    # for p in ax.patches:
+    #     height = p.get_height()
+    #     if np.isnan(height):
+    #         height = 0
+    #
+    #     ax.text(p.get_x() + p.get_width() / 2., height,
+    #             "{:.2f}".format(height), fontsize=9, color='black', ha='center',
+    #             va='bottom')
+    #
+    #     # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
+    #     counter += 1
+
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.legend()
+    plt.gcf().set_size_inches(6.0, 4.5)
+
+    ticks = list(ax.get_yticks())
+    labels = list(ax.get_yticklabels())
+
+    #ticks.append(np.sqrt(0.5))
+    #ticks.append(np.sqrt(2.5))
+
+    #labels.append(r'$\sqrt{0.5}\sigma$')
+    #labels.append(r'$\sqrt{2.5}\sigma$')
+
+    ax.set_yticks(ticks)
+    ax.set_yticklabels(labels)
+
+    print(ticks)
+    print(labels)
+
+
+    plt.tight_layout()
+
+    plt.savefig("{}/sim_rmse_reponse_delay_ratio.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
+    #plt.show()
+
+    plt.close()
+
 def export_tdoa_simulation_response_std_scatter(config, export_dir):
 
     from sim_tdoa import sim
@@ -1426,11 +1530,12 @@ if __name__ == '__main__':
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
         #export_testbed_variance_calculated_tof_ci,
-        export_testbed_tdoa_variance,
-        export_testbed_tdoa_calculated_tdoa_variance,
-        export_testbed_tdoa_calculated_tdoa_ci_variance,
-        export_testbed_variance_calculated_tof,
-        export_testbed_variance_calculated_tof_ci_avg
+        #export_testbed_tdoa_variance,
+        #export_testbed_tdoa_calculated_tdoa_variance,
+        #export_testbed_tdoa_calculated_tdoa_ci_variance,
+        #export_testbed_variance_calculated_tof,
+        #export_testbed_variance_calculated_tof_ci_avg,
+        export_tof_simulation_response_std
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):
