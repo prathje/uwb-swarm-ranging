@@ -445,25 +445,25 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None):
                     yield record
 
 
-import testbed.trento_b as trento_b
-it = extract_tdma_twr(trento_b, 'job_tdma')
-
-df = pd.DataFrame.from_records(it)
-
-#print((df[df['pair'] == '12-6']).to_string())
-#exit()
-
-gb = df.groupby('pair')
-
-print("MEAN Error")
-print(((gb['twr_tof']).mean() - gb['dist'].mean()).to_string())
-
-
-print("STD")
-print((gb['twr_tof'].std()*100).to_string())
-
-print("Count")
-print((gb['twr_tof'].count()).to_string())
+# import testbed.trento_b as trento_b
+# it = extract_tdma_twr(trento_b, 'job_tdma')
+#
+# df = pd.DataFrame.from_records(it)
+#
+# #print((df[df['pair'] == '12-6']).to_string())
+# #exit()
+#
+# gb = df.groupby('pair')
+#
+# print("MEAN Error")
+# print(((gb['twr_tof']).mean() - gb['dist'].mean()).to_string())
+#
+#
+# print("STD")
+# print((gb['twr_tof'].std()*100).to_string())
+#
+# print("Count")
+# print((gb['twr_tof'].count()).to_string())
 
 
 

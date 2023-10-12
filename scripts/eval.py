@@ -1081,7 +1081,8 @@ def export_tdoa_simulation_drift_performance(config, export_dir):
 
     for x in xs:
 
-        tof_std, tdoa_std, _ = sim(
+
+        res, _ = sim(
             num_exchanges=num_repetitions,
             resp_delay_s=(1.0, 0.000001),
             node_drift_std=x,
@@ -1089,6 +1090,9 @@ def export_tdoa_simulation_drift_performance(config, export_dir):
             tx_delay_mean=0.0,
             tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
         )
+
+        tof_std = (res['est_tof_a']).std() * c_in_air
+        tdoa_std = (res['est_tof_a_ds']).std() * c_in_air
 
         data_rows.append(
             {
@@ -1148,7 +1152,7 @@ def export_tdoa_simulation_rx_noise(config, export_dir):
 
     for x in xs:
 
-        tof_std, tdoa_std = sim(
+        res, _ = sim(
             num_exchanges=num_repetitions,
             resp_delay_s=0.001,
             node_drift_std=1.0e-06,
@@ -1156,6 +1160,9 @@ def export_tdoa_simulation_rx_noise(config, export_dir):
             tx_delay_mean=0.0,
             tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
         )
+
+        tof_std = (res['est_tof_a']).std() * c_in_air
+        tdoa_std = (res['est_tof_a_ds']).std() * c_in_air
 
         data_rows.append(
             {
@@ -1208,58 +1215,73 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
     from sim_tdoa import sim
 
-    limit = 6.0
+    limit = 3.0
     step = 0.1
     response_delay_exps = np.arange(-limit, limit+step, step)
 
     xs = response_delay_exps
-    num_sims = 10000
-    num_repetitions = 1
+    num_sims = 100
     resp_delay_s = 1.0
 
     def proc():
         data_rows = []
         for x in xs:
-            tof_std = []
-            tdoa_std = []
 
-            for r in range(num_repetitions):
-                run_tof_std, run_tdoa_std, _ = sim(
-                    num_exchanges=num_sims,
-                    resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
-                    node_drift_std=10.0/1000000.0,
-                    rx_noise_std=1.0e-09,
-                    tx_delay_mean=0.0,
-                    tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
-                )
+            res, _ = sim(
+                num_exchanges=num_sims,
+                resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
+                node_drift_std=10.0/1000000.0,
+                rx_noise_std=1.0e-09,
+                tx_delay_mean=0.0,
+                tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+            )
 
-                tof_std.append(run_tof_std)
-                tdoa_std.append(run_tdoa_std)
+            tof_std = (res['est_tof_a']).std()
+            tof_ds_std = (res['est_tof_a_ds']).std()
 
-            tof_std = 1.0e09*np.asarray(tof_std)/c_in_air
-            tdoa_std = 1.0e09*np.asarray(tdoa_std)/c_in_air
+            tdoa_std = (res['est_tdoa']).std()
+            tdoa_ds_std = (res['est_tdoa_ds']).std()
+
+            tdoa_half_cor_std = (res['est_tdoa_half_cor']).std()
+            tdoa_ds_half_cor_std = (res['est_tdoa_ds_half_cor']).std()
 
             data_rows.append(
                 {
                     'rdr': x,
-                    'tof_std_mean': tof_std.mean(),
-                    'tof_std_se': tof_std.std() / tof_std.size,
-                    'tdoa_std_mean': tdoa_std.mean(),
-                    'tdoa_std_se': tdoa_std.mean() / tdoa_std.size,
+                    'tof_std': 1.0e09*tof_std,
+                    'tof_ds_std': 1.0e09*tof_ds_std,
+                    'tdoa_std': 1.0e09*tdoa_std,
+                    'tdoa_ds_std': 1.0e09*tdoa_ds_std,
+                    'tdoa_half_cor_std': 1.0e09*tdoa_half_cor_std,
+                    'tdoa_ds_half_cor_std': 1.0e09*tdoa_ds_half_cor_std,
+                    #'tof_std_se': tof_std.std() / tof_std.size,
+                    #'tdoa_std_se': tdoa_std.mean() / tdoa_std.size,
                 }
             )
         return data_rows
 
-    data_rows = cached( ('export_tdoa_simulation_response_std', limit, step, 8, num_sims, resp_delay_s), proc)
+    data_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 10, num_sims, resp_delay_s), proc)
 
 
     df = pd.DataFrame(data_rows)
-    print("min tof", df['tof_std_mean'].min(), "min tdoa sd", df['tdoa_std_mean'].min())
+    print("Response STDs", data_rows)
 
-    df = df.rename(columns={"tof_std_mean": "Simulated ToF SD", "tdoa_std_mean": "Simulated TDoA SD"})
+    df = df.rename(columns={
+        "tof_std": "Simulated ToF SD",
+        "tof_ds_std": "Simulated ToF DS SD",
+        "tdoa_std": "Simulated TDoA SD",
+        "tdoa_ds_std": "Simulated TDoA DS SD",
+        "tdoa_half_cor_std": "Simulated TDoA (w/ DC) SD",
+        "tdoa_ds_half_cor_std": "Simulated TDoA DS (w/ DC) SD"
+    })
 
     plt.clf()
-    ax = df.plot.line(x='rdr', y=['Simulated ToF SD', 'Simulated TDoA SD'])
+    ax = df.plot.line(x='rdr', y=[
+        #'Simulated ToF SD',
+        #'Simulated ToF DS SD',
+        'Simulated TDoA SD',
+        'Simulated TDoA (w/ DC) SD'
+    ]) # todo plot with markers and different line styles...
 
     ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
 
@@ -1268,7 +1290,8 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
 
 
-    plt.ylim(0.2, 1.8)
+    #plt.ylim(0.2, 1.8)
+    plt.ylim(0.2, 10)
 
     ax.set_axisbelow(True)
     ax.set_xlabel("Delay Ratio $\\frac{D_A}{D_B}$")
@@ -1340,7 +1363,7 @@ def export_tof_simulation_response_std(config, export_dir):
         data_rows = []
         for x in xs:
 
-            _, _, _, res = sim(
+            res, _ = sim(
                 num_exchanges=num_sims,
                 resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
                 node_drift_std=100.0/1000000.0,
@@ -1442,7 +1465,7 @@ def export_tdoa_simulation_response_std_scatter(config, export_dir):
         data_rows = []
         for x in xs:
 
-            run_tof_std, run_tdoa_std, run_data_rows = sim(
+            _, run_data_rows = sim(
                 num_exchanges=num_sims,
                 resp_delay_s=(resp_delay_s, resp_delay_s * np.power(10, x)),
                 node_drift_std=10.0 / 1000000.0,
@@ -1525,7 +1548,7 @@ if __name__ == '__main__':
         #export_overall_rmse_reduction,
         #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        #export_tdoa_simulation_response_std,
+        export_tdoa_simulation_response_std,
         #export_tdoa_simulation_response_std_scatter,
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
@@ -1535,7 +1558,7 @@ if __name__ == '__main__':
         #export_testbed_tdoa_calculated_tdoa_ci_variance,
         #export_testbed_variance_calculated_tof,
         #export_testbed_variance_calculated_tof_ci_avg,
-        export_tof_simulation_response_std
+        #export_tof_simulation_response_std
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):

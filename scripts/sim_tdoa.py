@@ -153,7 +153,8 @@ def calc_tdoa_simple(ex, mitigate_drift=True):
 def calc_tdoa_ds(ex, mitigate_drift=True):
 
     rel_cd_a = ex['passive_overall'] / (ex['round_a'] + ex['delay_a'])
-    rel_cd_b = rel_cd_a * ((ex['round_a'] + ex['delay_a']) / (ex['round_b'] + ex['delay_b'])) # we reuse the cd between passive and a to estimate the relative drift to b
+    relative_drift = ((ex['round_a'] + ex['delay_a']) / (ex['round_b'] + ex['delay_b']))
+    rel_cd_b = rel_cd_a * relative_drift # we reuse the cd between passive and a to estimate the relative drift to b
 
     if not mitigate_drift:
          rel_cd_a = 1.0
@@ -161,6 +162,32 @@ def calc_tdoa_ds(ex, mitigate_drift=True):
 
     tdoa_one = 0.5*rel_cd_a*ex['round_a'] + 0.5*rel_cd_b*ex['delay_b'] - ex['passive_tdoa']
     tdoa_two = 0.5*rel_cd_a*ex['delay_a'] + 0.5*rel_cd_b*ex['round_b'] - (ex['passive_overall']-ex['passive_tdoa'])
+
+    return (tdoa_one - tdoa_two) * 0.5
+
+
+def calc_tdoa_tof_half_corrected(ex, mitigate_drift=True):
+
+    # we only correct for the tof relative drift here!
+    relative_drift = ((ex['round_a'] + ex['delay_a']) / (ex['round_b'] + ex['delay_b']))
+
+    if not mitigate_drift:
+         relative_drift = 1.0
+
+    tdoa_one = 0.5*ex['round_a'] + 0.5*relative_drift*ex['delay_b'] - ex['passive_tdoa']
+
+    return tdoa_one
+
+def calc_tdoa_ds_tof_half_corrected(ex, mitigate_drift=True):
+
+    # we only correct for the tof relative drift here!
+    relative_drift = ((ex['round_a'] + ex['delay_a']) / (ex['round_b'] + ex['delay_b']))
+
+    if not mitigate_drift:
+         relative_drift = 1.0
+
+    tdoa_one = 0.5*ex['round_a'] + 0.5*relative_drift*ex['delay_b'] - ex['passive_tdoa']
+    tdoa_two = 0.5*ex['delay_a'] + 0.5*relative_drift*ex['round_b'] - (ex['passive_overall']-ex['passive_tdoa'])
 
     return (tdoa_one-tdoa_two)*0.5
 
@@ -192,7 +219,9 @@ def calculate_in_place(data_rows, mitigate_drift=True):
         r['est_tof_a'] = calc_simple(r, mitigate_drift=mitigate_drift)
         r['est_tof_a_ds'] = calc_simple_ds(r, mitigate_drift=mitigate_drift)
         r['est_tdoa'] = calc_tdoa_simple(r, mitigate_drift=mitigate_drift)
+        r['est_tdoa_half_cor'] = calc_tdoa_tof_half_corrected(r, mitigate_drift=mitigate_drift)
         r['est_tdoa_ds'] = calc_tdoa_ds(r, mitigate_drift=mitigate_drift)
+        r['est_tdoa_ds_half_cor'] = calc_tdoa_ds_tof_half_corrected(r, mitigate_drift=mitigate_drift)
 
         r['real_tof'] = dist(r['device_a'], r['device_b']) / c_in_air
         r['real_tdoa'] = tof_to_passive(r['device_a']) - tof_to_passive(r['device_b'])
@@ -208,8 +237,5 @@ def sim(num_exchanges = 100000, resp_delay_s=RESP_DELAY_S, node_drift_std=NODE_D
     for k in data_rows[0]:
         data[k] = np.asarray([r[k] for r in data_rows])
 
+    return data, data_rows
 
-    tof_std = (data['est_tof_a']).std() * c_in_air
-    td_std = (data['est_tof_a_ds']).std()  * c_in_air
-
-    return tof_std, td_std, data_rows
