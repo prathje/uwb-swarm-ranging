@@ -1553,8 +1553,8 @@ def export_loc_sim(config, export_dir):
             repetitions=repetitions
         )
 
-    tof_m = cached(('export_tof_loc_sim', meas_std, samples_per_side, repetitions, 2), tof_proc)
-    tdoa_m = cached(('export_tdoa_loc_sim', meas_std, samples_per_side, repetitions, 2), tdoa_proc)
+    tof_m = cached(('export_tof_loc_sim', meas_std, samples_per_side, repetitions, 3), tof_proc)
+    tdoa_m = cached(('export_tdoa_loc_sim', meas_std, samples_per_side, repetitions, 3), tdoa_proc)
 
     exps = {
         "tof": tof_m,

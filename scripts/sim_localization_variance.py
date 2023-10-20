@@ -51,7 +51,7 @@ def create_matrix(fun, meas_std, samples_per_side=100, repetitions=10):
 
     for a in range(samples_per_side):
         for b in range(samples_per_side):
-            p = (a / float(samples_per_side), b / float(samples_per_side))
+            p = (a * (SIDE_LENGTH/float(samples_per_side)), b * (SIDE_LENGTH/float(samples_per_side)))
             xs = np.asarray([fun(p, meas_std) for x in range(repetitions)])
             m[a,b] = np.sqrt(np.mean(xs**2))
     return m
