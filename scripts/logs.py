@@ -307,7 +307,7 @@ def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pair
 
 import pandas as pd
 
-def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None):
+def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
     rx_events = []
@@ -413,10 +413,12 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None):
 
                         return end - start
 
-                    round_a = dur((data.get('init_tx', {}) or {}).get('tx_ts', None), (data.get('respond_rx', {}) or {}).get('bias_corrected_rx_ts', None))
-                    delay_b = dur((data.get('init_rx', {}) or {}).get('bias_corrected_rx_ts', None), (data.get('respond_tx', {}) or {}).get('tx_ts', None))
-                    delay_a = dur((data.get('respond_rx', {}) or {}).get('bias_corrected_rx_ts', None), (data.get('final_tx', {}) or {}).get('tx_ts', None))
-                    round_b = dur((data.get('respond_tx', {}) or {}).get('tx_ts', None), (data.get('final_rx', {}) or {}).get('bias_corrected_rx_ts', None))
+
+
+                    round_a = dur((data.get('init_tx', {}) or {}).get('tx_ts', None), (data.get('respond_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+                    delay_b = dur((data.get('init_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None), (data.get('respond_tx', {}) or {}).get('tx_ts', None))
+                    delay_a = dur((data.get('respond_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None), (data.get('final_tx', {}) or {}).get('tx_ts', None))
+                    round_b = dur((data.get('respond_tx', {}) or {}).get('tx_ts', None), (data.get('final_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
 
                     record['round_a'] = round_a
                     record['delay_b'] = delay_b
@@ -430,7 +432,6 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None):
 
                         record['relative_drift'] = relative_drift
                         record['twr_tof'] = twr_tof
-
 
                         if tdoa_src_dev:
                             record['tdoa'] = get_dist(testbed.dev_positions[da],
