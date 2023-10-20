@@ -1533,8 +1533,8 @@ def export_tdoa_simulation_response_std_scatter(config, export_dir):
 def export_loc_sim(config, export_dir):
     import sim_localization_variance
 
-    samples_per_side = 100
-    repetitions = 100
+    samples_per_side = 200
+    repetitions = 200
     meas_std = 0.05
 
     def tof_proc():
