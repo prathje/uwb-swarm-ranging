@@ -1565,7 +1565,7 @@ def export_loc_sim(config, export_dir):
     for k in exps:
         plt.clf()
         fig, ax = plt.subplots()
-        im = ax.matshow(exps[k]) #, vmin=0.0, vmax=5.0)
+        im = ax.imshow(exps[k], interpolation='none') #, vmin=0.0, vmax=5.0)
 
         for (x, y) in sim_localization_variance.NODES_POSITIONS:
             plt.plot(
