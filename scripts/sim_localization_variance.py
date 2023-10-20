@@ -10,8 +10,8 @@ SIDE_LENGTH = 10.0
 
 NODES_POSITIONS = np.asarray([
     (0.4*SIDE_LENGTH, 0.6*SIDE_LENGTH),
-    (0.55*SIDE_LENGTH, 0.42*SIDE_LENGTH),
-    (0.62*SIDE_LENGTH, 0.65*SIDE_LENGTH),
+    (0.4*SIDE_LENGTH, 0.4*SIDE_LENGTH),
+    (0.6*SIDE_LENGTH, 0.6*SIDE_LENGTH),
 ])
 
 def sim_single_tof_positioning(p, meas_std):
@@ -47,7 +47,7 @@ def sim_single_tdoa_positioning(p, meas_std):
     return np.linalg.norm(p - res.x)
 
 def create_matrix(fun, meas_std, samples_per_side=100, repetitions=10):
-    m = np.zeros((samples_per_side,samples_per_side))
+    m = np.zeros((samples_per_side, samples_per_side))
 
     for a in range(samples_per_side):
         for b in range(samples_per_side):

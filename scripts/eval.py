@@ -1553,8 +1553,9 @@ def export_loc_sim(config, export_dir):
             repetitions=repetitions
         )
 
-    tof_m = cached(('export_tof_loc_sim', meas_std, samples_per_side, repetitions, 3), tof_proc)
-    tdoa_m = cached(('export_tdoa_loc_sim', meas_std, samples_per_side, repetitions, 3), tdoa_proc)
+    version = 4
+    tof_m = cached(('export_tof_loc_sim', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tof_proc)
+    tdoa_m = cached(('export_tdoa_loc_sim', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tdoa_proc)
 
     exps = {
         "tof": tof_m,
@@ -1567,10 +1568,14 @@ def export_loc_sim(config, export_dir):
         im = ax.matshow(exps[k]) #, vmin=0.0, vmax=5.0)
 
         for (x, y) in sim_localization_variance.NODES_POSITIONS:
-            plt.plot(x / sim_localization_variance.SIDE_LENGTH * samples_per_side, y / sim_localization_variance.SIDE_LENGTH * samples_per_side, 'b+')
+            plt.plot(
+                (y / sim_localization_variance.SIDE_LENGTH)*samples_per_side,
+                (x / sim_localization_variance.SIDE_LENGTH) * samples_per_side,
+                'wx',
+            )
 
-        cbar = ax.figure.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel("Loc RMSE [m]", rotation=-90, va="bottom")
+        cbar = ax.figure.colorbar(im, ax=ax, location='right', format=lambda x, _: "{:.2f}".format(x), shrink=0.65, aspect=20*0.7)
+        cbar.ax.set_ylabel("Localization RMSE [m]", rotation=-90, va="bottom")
 
         fig.set_size_inches(4.0, 4.0)
         plt.tight_layout()
