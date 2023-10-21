@@ -384,7 +384,7 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
     else:
         tdoa_src_dev = None
 
-    for r in range(16, max_round+1):
+    for r in range(0, max_round+1):
 
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
