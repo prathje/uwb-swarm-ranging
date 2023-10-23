@@ -1758,6 +1758,56 @@ def export_twr_scatter(config, export_dir):
     exit()
 
 
+def export_twr_vs_tdoa_scatter_rssi(config, export_dir):
+    log = 'job_tdma_long'
+
+    def proc():
+        return pd.DataFrame.from_records(logs.gen_all_rx_events(trento_b, log))
+
+    all_raw_df = utility.cached_dt(('export_twr_vs_tdoa_scatter_rssi_raw', log), proc)
+    print(all_raw_df)
+    rssi_values = all_raw_df.groupby(['own_number', 'rx_number']).agg({'rssi': ['mean', 'std', lambda x: x.quantile(0.95)]}).transpose().to_dict()
+
+    def get_rssi_mean_std(r, t):
+        return rssi_values[(r,t)][('rssi', 'mean')], rssi_values[(r,t)][('rssi', 'std')]
+
+    use_bias_correction = True
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+
+    all_df = all_df[all_df['tdoa_count'].notna()]
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+    # gb = all_df.groupby(by='_filter_pair').agg('median') #'.quantile([0, 0.25, 0.5, 0.75, 0.95, 1])
+    # all_df = all_df[['ratio']]
+    # all_df['ratio'].boxplot()
+
+    fig, ax = plt.subplots()
+    all_df.plot.scatter('twr_tof_ds_err_std', 'tdoa_est_ds_err_std', ax=ax)
+
+    def get_label(v):
+        a, b = v['_filter_pair'].split('-')
+        a, b = int(a), int(b)
+        p = v['_filter_passive_listener']
+
+        a_rssi_mean, a_rssi_std = get_rssi_mean_std(p, a)
+        b_rssi_mean, b_rssi_std = get_rssi_mean_std(p, b)
+
+        return "{:.2f} [{:.2f}], {:.2f} [{:.2f}]".format(a_rssi_mean, a_rssi_std, b_rssi_mean, b_rssi_std)
+
+    for k, v in all_df.iterrows():
+        ax.annotate("{} {} {}".format(v['_filter_pair'], v['_filter_passive_listener'], get_label(v)),
+                    (v['twr_tof_ds_err_std'], v['tdoa_est_ds_err_std']), xytext=(5, -5), textcoords='offset points',
+                    family='sans-serif', fontsize=6, color='black')
+
+    plt.axline((0, 0), slope=np.sqrt(2.5 / 0.5))
+
+    plt.show()
+
+
+
+
 def export_twr_vs_tdoa_scatter(config, export_dir):
     log = 'job_tdma_long'
 
@@ -1768,7 +1818,6 @@ def export_twr_vs_tdoa_scatter(config, export_dir):
 
     from matplotlib import cm
     cmap = cm.get_cmap('Spectral')
-
 
     #gb = all_df.groupby(by='_filter_pair').agg('median') #'.quantile([0, 0.25, 0.5, 0.75, 0.95, 1])
     # all_df = all_df[['ratio']]
@@ -1809,6 +1858,58 @@ def export_twr_vs_tdoa_scatter(config, export_dir):
     exit()
 
 
+def export_new_twr_variance_based_model(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+    var_df = twr_df.groupby('pair').agg({'twr_tof_ds': 'var'})
+    var_dict = var_df.to_dict()['twr_tof_ds']
+
+    def compute_exp_std(pair, p):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        return np.sqrt(var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
+
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+    all_df = all_df[all_df['tdoa_count'].notna()]
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+    fig, ax = plt.subplots()
+
+    all_df['expected_std'] = all_df.apply(lambda x: compute_exp_std(x['_filter_pair'], x['_filter_passive_listener']), axis=1)
+    all_df.plot.scatter('tdoa_est_ds_err_std', 'expected_std', ax=ax)
+
+    for k, v in all_df.iterrows():
+        ax.annotate("{}".format(v['_filter_pair']), (v['tdoa_est_ds_err_std'], v['expected_std']),  xytext=(5, -5), textcoords='offset points', family='sans-serif', fontsize=6, color='black')
+
+    plt.axline((0,0), slope=1.0)
+
+    plt.show()
+
+    print(all_df)
+    exit()
+
+
+def export_twr_scatter_dist(config, export_dir):
+    log = 'job_tdma_very_long'
+
+    all_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=True)
+    all_df['twr_tof_ds_err'] = all_df['twr_tof_ds'] - all_df['dist']
+    all_df = all_df.groupby('pair').agg({'dist': 'max', 'pair': 'max', 'twr_tof_ds_err': 'std'})
+
+    fig, ax = plt.subplots()
+    all_df.plot.scatter('dist', 'twr_tof_ds_err', ax=ax)
+
+    for k, v in all_df.iterrows():
+        ax.annotate(v['pair'], (v['twr_tof_ds_err'], v['dist']),  xytext=(5, -5), textcoords='offset points', family='sans-serif', fontsize=6, color='black')
+    plt.show()
+    exit()
+
+
 
 
 
@@ -1818,9 +1919,6 @@ def export_testbed_ds_vs_cfo_comparison(config, export_dir):
     skip_to_round = 0  # 200?
     up_to_round = 197  # 200?
     log = 'job_tdma_long'
-
-
-
 
 
     use_bias_correction = True
@@ -1903,11 +2001,15 @@ if __name__ == '__main__':
         #export_testbed_variance_calculated_tof_ci_avg,
         #export_tof_simulation_response_std,
         #export_twr_scatter,
-        export_twr_vs_tdoa_scatter,
+        #export_twr_vs_tdoa_scatter_rssi,
+        #export_twr_vs_tdoa_scatter,
         #export_loc_sim,
+        #export_twr_scatter_dist
+        export_new_twr_variance_based_model
     ]
 
-    for step in progressbar.progressbar(steps, redirect_stdout=True):
+    #for step in progressbar.progressbar(steps, redirect_stdout=True):
+    for step in steps:
         name = step.__name__.removeprefix(METHOD_PREFIX)
         print("Handling {}".format(name))
         export_dir = os.path.join(config['EXPORT_DIR']) + '/'

@@ -331,45 +331,61 @@ def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pair
 import pandas as pd
 
 
-def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True):
+def gen_round_events(testbed, run):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
-    def gen_round_events():
-        cur_rx_events = []
-        cur_tx_events = []
+    cur_rx_events = []
+    cur_tx_events = []
 
-        cur_round = None
+    cur_round = None
 
-        with open(logfile) as f:
-            msg_gen = testbed.parse_messages_from_lines(f)
-            for (_, _, x) in msg_gen:
-                e = x['event']
+    with open(logfile) as f:
+        msg_gen = testbed.parse_messages_from_lines(f)
+        for (_, _, x) in msg_gen:
+            e = x['event']
 
-                if e == 'rx':
-                    e_r = int(x['rx_round'])
-                elif e == 'tx':
-                    e_r = int(x['tx_round'])
-                else:
-                    continue
+            if e == 'rx':
+                e_r = int(x['rx_round'])
+            elif e == 'tx':
+                e_r = int(x['tx_round'])
+            else:
+                continue
 
-                if cur_round is None:
-                    cur_round = e_r
+            if cur_round is None:
+                cur_round = e_r
 
-                if cur_round < e_r:
-                    yield cur_round, cur_rx_events, cur_tx_events
-                    cur_rx_events = []
-                    cur_tx_events = []
-                    cur_round = e_r
+            if cur_round < e_r:
+                yield cur_round, cur_rx_events, cur_tx_events
+                cur_rx_events = []
+                cur_tx_events = []
+                cur_round = e_r
 
-                if e == 'rx':
-                    cur_rx_events.append(x)
-                elif e == 'tx':
-                    cur_tx_events.append(x)
-                elif e == 'init':
-                    pass
-        # yield last entries
-        if len(cur_rx_events) > 0 or len(cur_tx_events) > 0:
-            yield cur_round, cur_rx_events, cur_tx_events
+            if e == 'rx':
+                cur_rx_events.append(x)
+            elif e == 'tx':
+                cur_tx_events.append(x)
+            elif e == 'init':
+                pass
+    # yield last entries
+    if len(cur_rx_events) > 0 or len(cur_tx_events) > 0:
+        yield cur_round, cur_rx_events, cur_tx_events
+
+def gen_all_rx_events(testbed, run, skip_to_round=None, until_round=None):
+    round_gen = gen_round_events(testbed, run)
+
+    for (r, rx_events, tx_events) in round_gen:
+        if skip_to_round is not None and r < skip_to_round:
+            continue
+        if until_round is not None and r > until_round:
+            break
+
+        for rx_event in rx_events:
+            yield rx_event
+
+def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True):
+
+
+
 
     def extract_data(rx_df, tx_df, r, a, b, passive):
         # we extract data for initiator a and responder b (numbers not device names!)
@@ -440,9 +456,11 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
     else:
         tdoa_src_dev = None
 
-    for (r, rx_events, tx_events) in gen_round_events():
+    for (r, rx_events, tx_events) in gen_round_events(testbed, run):
         rx_df = pd.DataFrame.from_records(rx_events)
         tx_df = pd.DataFrame.from_records(tx_events)
+
+        print(r)
 
         for (a, da) in enumerate(testbed.devs):
             for (b, db) in enumerate(testbed.devs):
