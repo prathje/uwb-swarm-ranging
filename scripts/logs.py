@@ -3,19 +3,18 @@ import numpy as np
 from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
 import ctypes
 
-from testbed_to_c_vals import  create_inference_matrix
-
+from testbed_to_c_vals import create_inference_matrix
 
 
 def convert_logged_measurement(val):
-
-    if val > 2**62:
-        #this value is likely overflown...
+    if val > 2 ** 62:
+        # this value is likely overflown...
         number = val & 0xFFFFFFFFFFFFFFFF
         signed_number = ctypes.c_longlong(number).value
         val = signed_number
 
     return val / 1000.0
+
 
 def extract_types(msg_iter, types):
     rounds = set()
@@ -44,8 +43,7 @@ def extract_types(msg_iter, types):
     return tuple([rounds] + [by_round_and_dev[t] for t in types])
 
 
-
-def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci_drift_avg = 0):
+def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci_drift_avg=0):
     rounds, raw_measurements, drift_estimations = extract_types(msg_iter, ['raw_measurements', 'drift_estimation'])
 
     # put all messages into (d, round) sets
@@ -54,16 +52,14 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
         for (d_index, d) in enumerate(testbed.devs):
 
             if src_dev and d != src_dev:
-                continue # we skip as we do not have this data anyway!
+                continue  # we skip as we do not have this data anyway!
 
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
                     if b <= a:
                         continue
 
-
-
-                    pi = pair_index(a,b)
+                    pi = pair_index(a, b)
 
                     record = {}
 
@@ -71,9 +67,10 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
                     record['device'] = d
                     record['initiator'] = a
                     record['responder'] = b
-                    record['pair'] = "{}-{}".format(a,b)
+                    record['pair'] = "{}-{}".format(a, b)
                     record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
-                    record['tdoa'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[d])-get_dist(testbed.dev_positions[d], testbed.dev_positions[db])
+                    record['tdoa'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[d]) - get_dist(
+                        testbed.dev_positions[d], testbed.dev_positions[db])
 
                     msg = raw_measurements.get((d, r), None)
 
@@ -91,11 +88,13 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
                         record['response_dur'] = msg['measurements'][pi][1]
 
                         if msg['measurements'][pi][2] is not None:
-                            record['estimated_tof'] = convert_ts_to_m(convert_logged_measurement(msg['measurements'][pi][2]))
+                            record['estimated_tof'] = convert_ts_to_m(
+                                convert_logged_measurement(msg['measurements'][pi][2]))
 
                         if len(msg['measurements'][pi]) >= 7 and msg['measurements'][pi][4] != 0:
                             record['tdoa_m'] = msg['measurements'][pi][4]
-                            record['estimated_tdoa'] = convert_ts_to_m(convert_logged_measurement(msg['measurements'][pi][5]))
+                            record['estimated_tdoa'] = convert_ts_to_m(
+                                convert_logged_measurement(msg['measurements'][pi][5]))
 
                     msg = drift_estimations.get((d, r), None)
 
@@ -108,7 +107,6 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
                     record['relative_drift_b'] = None
                     record['relative_drift_b_ci'] = None
 
-
                     # calculate average drift estimation using carrierintegrators, note that we are using dummy rounds here as well!
 
                     sum_ci_drift_a = 0.0
@@ -116,7 +114,7 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
                     sum_ci_drift_b = 0.0
                     num_ci_drift_b = 0
 
-                    for old_r in range(r-num_ci_drift_avg, r+1):
+                    for old_r in range(r - num_ci_drift_avg, r + 1):
                         old_ci_msg = drift_estimations.get((d, old_r), None)
                         if old_ci_msg is None:
                             continue
@@ -133,7 +131,6 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
 
                     if num_ci_drift_b > 0:
                         record['relative_drift_b_ci_avg'] = sum_ci_drift_b / num_ci_drift_b
-
 
                     if a == d_index:
                         record['relative_drift_a_ci'] = 1.0
@@ -165,21 +162,35 @@ def extract_measurements(msg_iter, testbed, src_dev, include_dummy=False, num_ci
 
                     record['calculated_tof'] = None
 
-                    if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur']]:
-                        record['calculated_tof'] = convert_ts_to_m(record['relative_drift_a'] *record['round_dur'] - record['relative_drift_b'] * record['response_dur'])*0.5
+                    if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'],
+                                    record['response_dur']]:
+                        record['calculated_tof'] = convert_ts_to_m(
+                            record['relative_drift_a'] * record['round_dur'] - record['relative_drift_b'] * record[
+                                'response_dur']) * 0.5
 
-                    if None not in [record['relative_drift_a_ci'], record['relative_drift_b_ci'], record['round_dur'], record['response_dur']]:
-                        record['calculated_tof_ci'] = convert_ts_to_m(record['relative_drift_a_ci'] *record['round_dur'] - record['relative_drift_b_ci'] * record['response_dur'])*0.5
-                        record['calculated_tof_ci_avg'] = convert_ts_to_m(record['relative_drift_a_ci_avg'] *record['round_dur'] - record['relative_drift_b_ci_avg'] * record['response_dur'])*0.5
+                    if None not in [record['relative_drift_a_ci'], record['relative_drift_b_ci'], record['round_dur'],
+                                    record['response_dur']]:
+                        record['calculated_tof_ci'] = convert_ts_to_m(
+                            record['relative_drift_a_ci'] * record['round_dur'] - record['relative_drift_b_ci'] *
+                            record['response_dur']) * 0.5
+                        record['calculated_tof_ci_avg'] = convert_ts_to_m(
+                            record['relative_drift_a_ci_avg'] * record['round_dur'] - record[
+                                'relative_drift_b_ci_avg'] * record['response_dur']) * 0.5
 
+                    if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'],
+                                    record['response_dur'], record['tdoa_m']]:
+                        record['calculated_tdoa'] = convert_ts_to_m(
+                            record['relative_drift_a'] * record['round_dur'] * 0.5 + record['relative_drift_b'] *
+                            record['response_dur'] * 0.5 - record['tdoa_m'])
 
-                    if None not in [record['relative_drift_a'], record['relative_drift_b'], record['round_dur'], record['response_dur'], record['tdoa_m']]:
-                        record['calculated_tdoa'] = convert_ts_to_m(record['relative_drift_a'] *record['round_dur']*0.5 + record['relative_drift_b'] * record['response_dur']*0.5-record['tdoa_m'])
-
-                    if None not in [record['relative_drift_a_ci'], record['relative_drift_b_ci'], record['round_dur'], record['response_dur'], record['tdoa_m']]:
-                        record['calculated_tdoa_ci'] = convert_ts_to_m(record['relative_drift_a_ci'] *record['round_dur']*0.5 + record['relative_drift_b_ci'] * record['response_dur']*0.5-record['tdoa_m'])
-                        record['calculated_tdoa_ci_avg'] = convert_ts_to_m(record['relative_drift_a_ci_avg'] *record['round_dur']*0.5 + record['relative_drift_b_ci_avg'] * record['response_dur']*0.5-record['tdoa_m'])
-
+                    if None not in [record['relative_drift_a_ci'], record['relative_drift_b_ci'], record['round_dur'],
+                                    record['response_dur'], record['tdoa_m']]:
+                        record['calculated_tdoa_ci'] = convert_ts_to_m(
+                            record['relative_drift_a_ci'] * record['round_dur'] * 0.5 + record['relative_drift_b_ci'] *
+                            record['response_dur'] * 0.5 - record['tdoa_m'])
+                        record['calculated_tdoa_ci_avg'] = convert_ts_to_m(
+                            record['relative_drift_a_ci_avg'] * record['round_dur'] * 0.5 + record[
+                                'relative_drift_b_ci_avg'] * record['response_dur'] * 0.5 - record['tdoa_m'])
 
                     yield record
 
@@ -191,14 +202,14 @@ def extract_estimations(msg_iter, testbed, src_dev):
     for r in rounds:
         for d in testbed.devs:
             if src_dev and d != src_dev:
-                continue # we skip as we do not have this data anyway!
+                continue  # we skip as we do not have this data anyway!
 
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
                     if b <= a:
                         continue
 
-                    pi = pair_index(a,b)
+                    pi = pair_index(a, b)
 
                     record = {}
 
@@ -206,26 +217,32 @@ def extract_estimations(msg_iter, testbed, src_dev):
                     record['device'] = d
                     record['initiator'] = a
                     record['responder'] = b
-                    record['pair'] = "{}-{}".format(a,b)
+                    record['pair'] = "{}-{}".format(a, b)
                     record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
 
                     msg = estimations.get((d, r), None)
 
-                    #print(pi, len(msg['mean_measurements']))
+                    # print(pi, len(msg['mean_measurements']))
                     if msg is not None and pi < len(msg['mean_measurements']):
-                        record['mean_measurement'] = convert_ts_to_m(convert_logged_measurement(msg['mean_measurements'][pi]))
+                        record['mean_measurement'] = convert_ts_to_m(
+                            convert_logged_measurement(msg['mean_measurements'][pi]))
 
                         if 'var_measurements' in msg:
-                            record['var_measurement'] = np.square(convert_ts_to_m(np.sqrt(convert_logged_measurement(msg['var_measurements'][pi]))))
+                            record['var_measurement'] = np.square(
+                                convert_ts_to_m(np.sqrt(convert_logged_measurement(msg['var_measurements'][pi]))))
                         else:
                             record['var_measurement'] = None
 
-                        record['est_distance_uncalibrated'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_uncalibrated'][pi]))
-                        record['est_distance_factory'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_factory_delays'][pi]))
-                        record['est_distance_calibrated'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_estimated_delays'][pi]))
+                        record['est_distance_uncalibrated'] = convert_ts_to_m(
+                            convert_logged_measurement(msg['tofs_uncalibrated'][pi]))
+                        record['est_distance_factory'] = convert_ts_to_m(
+                            convert_logged_measurement(msg['tofs_from_factory_delays'][pi]))
+                        record['est_distance_calibrated'] = convert_ts_to_m(
+                            convert_logged_measurement(msg['tofs_from_estimated_delays'][pi]))
 
                         if 'tofs_from_filtered_estimated_delays' in msg:
-                            record['est_distance_calibrated_filtered'] = convert_ts_to_m(convert_logged_measurement(msg['tofs_from_filtered_estimated_delays'][pi]))
+                            record['est_distance_calibrated_filtered'] = convert_ts_to_m(
+                                convert_logged_measurement(msg['tofs_from_filtered_estimated_delays'][pi]))
                         else:
                             record['est_distance_calibrated_filtered'] = None
 
@@ -260,27 +277,29 @@ def extract_delay_estimates(msg_iter, testbed, src_dev, ignore_pairs=[]):
                     record['delays_from_measurements'].append(convert_logged_measurement(dm))
                     record['delays_from_measurements_rounded'].append(round(convert_logged_measurement(dm)))
 
-                for (i,d) in enumerate(testbed.devs):
-                    record['factory_delays'].append(testbed.factory_delays[d]-16450)
-                    record['factory_delays_diff'].append(record['delays_from_measurements_rounded'][i]-record['factory_delays'][i])
+                for (i, d) in enumerate(testbed.devs):
+                    record['factory_delays'].append(testbed.factory_delays[d] - 16450)
+                    record['factory_delays_diff'].append(
+                        record['delays_from_measurements_rounded'][i] - record['factory_delays'][i])
 
                 M = create_inference_matrix(len(testbed.devs), ignored_pairs=ignore_pairs)
 
                 measured = np.array([convert_logged_measurement(x) for x in msg['mean_measurements']])
 
-                actual = np.zeros(shape=round(len(testbed.devs)*(len(testbed.devs)-1)/2))
+                actual = np.zeros(shape=round(len(testbed.devs) * (len(testbed.devs) - 1) / 2))
 
                 for (a, da) in enumerate(testbed.devs):
                     for (b, db) in enumerate(testbed.devs):
                         if a > b:
-                            actual[pair_index(a,b)] = convert_m_to_ts(get_dist(testbed.dev_positions[da], testbed.dev_positions[db]))
+                            actual[pair_index(a, b)] = convert_m_to_ts(
+                                get_dist(testbed.dev_positions[da], testbed.dev_positions[db]))
 
                 diffs = measured - actual
 
-                record['python_delays'] = np.matmul(M, 2*diffs)
+                record['python_delays'] = np.matmul(M, 2 * diffs)
                 record['python_delays_rounded'] = [round(x) for x in record['python_delays']]
 
-                record['python_delays_diff'] = record['python_delays_rounded']-np.array(record['factory_delays'])
+                record['python_delays_diff'] = record['python_delays_rounded'] - np.array(record['factory_delays'])
                 record['mse'] = np.sqrt(np.mean(np.square(record['python_delays_diff'])))
                 record['mae'] = np.mean(np.abs(record['python_delays_diff']))
 
@@ -291,50 +310,74 @@ def gen_measurements_from_testbed_run(testbed, run, src_dev=None, include_dummy=
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
     with open(logfile) as f:
-        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, include_dummy=include_dummy, num_ci_drift_avg=num_ci_drift_avg)
+        yield from extract_measurements(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed,
+                                        src_dev=src_dev, include_dummy=include_dummy, num_ci_drift_avg=num_ci_drift_avg)
 
 
 def gen_estimations_from_testbed_run(testbed, run, src_dev=None):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
-        yield from extract_estimations(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev)
+        yield from extract_estimations(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed,
+                                       src_dev=src_dev)
+
 
 def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pairs=[]):
     logfile = "data/{}/{}.log".format(testbed.name, run)
     with open(logfile) as f:
-        yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed, src_dev=src_dev, ignore_pairs=ignore_pairs)
+        yield from extract_delay_estimates(testbed.parse_messages_from_lines(f, src_dev=src_dev), testbed=testbed,
+                                           src_dev=src_dev, ignore_pairs=ignore_pairs)
 
 
 import pandas as pd
 
+
 def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
-    rx_events = []
-    tx_events = []
+    def gen_round_events():
+        cur_rx_events = []
+        cur_tx_events = []
 
-    with open(logfile) as f:
-        msg_gen = testbed.parse_messages_from_lines(f)
-        for (_, _, x) in msg_gen:
-            e = x['event']
-            if e == 'rx':
-                rx_events.append(x)
-            elif e == 'tx':
-                tx_events.append(x)
-            elif e == 'init':
-                pass
+        cur_round = None
 
-    rx_df = pd.DataFrame.from_records(rx_events)
-    tx_df = pd.DataFrame.from_records(tx_events)
-    max_round = rx_df['rx_round'].max()
+        with open(logfile) as f:
+            msg_gen = testbed.parse_messages_from_lines(f)
+            for (_, _, x) in msg_gen:
+                e = x['event']
 
-    def extract_data(r, a, b, passive):
+                if e == 'rx':
+                    e_r = int(x['rx_round'])
+                elif e == 'tx':
+                    e_r = int(x['tx_round'])
+                else:
+                    continue
+
+                if cur_round is None:
+                    cur_round = e_r
+
+                if cur_round < e_r:
+                    yield cur_round, cur_rx_events, cur_tx_events
+                    cur_rx_events = []
+                    cur_tx_events = []
+                    cur_round = e_r
+
+                if e == 'rx':
+                    cur_rx_events.append(x)
+                elif e == 'tx':
+                    cur_tx_events.append(x)
+                elif e == 'init':
+                    pass
+        # yield last entries
+        if len(cur_rx_events) > 0 or len(cur_tx_events) > 0:
+            yield cur_round, cur_rx_events, cur_tx_events
+
+    def extract_data(rx_df, tx_df, r, a, b, passive):
         # we extract data for initiator a and responder b (numbers not device names!)
 
-        init_slot = a*(len(testbed.devs)-1)*3+b*3
+        init_slot = a * (len(testbed.devs) - 1) * 3 + b * 3
 
         if a <= b:
-            init_slot -= 3 # we save one exchange because a does not exchange it with itself...
+            init_slot -= 3  # we save one exchange because a does not exchange it with itself...
 
         response_slot = init_slot + 1
         final_slot = response_slot + 1
@@ -342,18 +385,32 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
         def first_or_none(l):
             return next(iter(l), None)
 
-        init_tx = first_or_none(tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == init_slot) & (tx_df["own_number"] == a)].to_dict(orient='records'))
-        init_rx = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (rx_df["own_number"] == b)].to_dict(orient='records'))
-        init_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (rx_df["own_number"] == passive)].to_dict(orient='records'))
+        init_tx = first_or_none(
+            tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == init_slot) & (tx_df["own_number"] == a)].to_dict(
+                orient='records'))
+        init_rx = first_or_none(
+            rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (rx_df["own_number"] == b)].to_dict(
+                orient='records'))
+        init_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (
+                    rx_df["own_number"] == passive)].to_dict(orient='records'))
 
-        response_tx = first_or_none(tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == response_slot) & (tx_df["own_number"] == b)].to_dict(orient='records'))
-        response_rx = first_or_none(rx_df[(rx_df["rx_round"] == r) &(rx_df["rx_slot"] == response_slot) & (rx_df["own_number"] == a)].to_dict(orient='records'))
-        response_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) &(rx_df["rx_slot"] == response_slot) & (rx_df["own_number"] == passive)].to_dict(orient='records'))
+        response_tx = first_or_none(
+            tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == response_slot) & (tx_df["own_number"] == b)].to_dict(
+                orient='records'))
+        response_rx = first_or_none(
+            rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == response_slot) & (rx_df["own_number"] == a)].to_dict(
+                orient='records'))
+        response_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == response_slot) & (
+                    rx_df["own_number"] == passive)].to_dict(orient='records'))
 
-        final_tx = first_or_none(tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == final_slot) & (tx_df["own_number"] == a)].to_dict(orient='records'))
-        final_rx = first_or_none(rx_df[(rx_df["rx_round"] == r) &(rx_df["rx_slot"] == final_slot) & (rx_df["own_number"] == b)].to_dict(orient='records'))
-        final_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) &(rx_df["rx_slot"] == final_slot) & (rx_df["own_number"] == passive)].to_dict(orient='records'))
-
+        final_tx = first_or_none(
+            tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == final_slot) & (tx_df["own_number"] == a)].to_dict(
+                orient='records'))
+        final_rx = first_or_none(
+            rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == final_slot) & (rx_df["own_number"] == b)].to_dict(
+                orient='records'))
+        final_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == final_slot) & (
+                    rx_df["own_number"] == passive)].to_dict(orient='records'))
 
         assert init_rx is None or init_rx['rx_number'] == a
         assert init_rx_passive is None or init_rx_passive['rx_number'] == a
@@ -363,7 +420,6 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
 
         assert final_rx is None or final_rx['rx_number'] == a
         assert final_rx_passive is None or final_rx_passive['rx_number'] == a
-
 
         ret = {
             'init_tx': init_tx,
@@ -384,94 +440,122 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
     else:
         tdoa_src_dev = None
 
-    for r in range(0, max_round+1):
-            print(r)
-            for (a, da) in enumerate(testbed.devs):
-                for (b, db) in enumerate(testbed.devs):
+    for (r, rx_events, tx_events) in gen_round_events():
+        rx_df = pd.DataFrame.from_records(rx_events)
+        tx_df = pd.DataFrame.from_records(tx_events)
 
-                    if a == b:
-                        continue
+        for (a, da) in enumerate(testbed.devs):
+            for (b, db) in enumerate(testbed.devs):
 
-                    record = {}
+                if a == b:
+                    continue
 
-                    record['round'] = int(r)
-                    record['initiator'] = a
-                    record['responder'] = b
-                    record['pair'] = "{}-{}".format(a,b)
-                    record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
-                    record['tdoa'] = None
+                record = {}
 
-                    data = extract_data(r, a, b, tdoa_src_dev_number)
+                record['round'] = int(r)
+                record['initiator'] = a
+                record['responder'] = b
+                record['pair'] = "{}-{}".format(a, b)
+                record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
+                record['tdoa'] = None
 
-                    # we check if data contains any None values, if so, we drop this exchange
-                    def dur(start, end):
-                        if None in [start, end]:
-                            return None
+                data = extract_data(rx_df, tx_df, r, a, b, tdoa_src_dev_number)
 
-                        if end <= start:
-                            end += 0xFFFFFFFFFF+1 # we handle overflow here
+                # we check if data contains any None values, if so, we drop this exchange
+                def dur(start, end):
+                    if None in [start, end]:
+                        return None
 
-                        return end - start
+                    if end <= start:
+                        end += 0xFFFFFFFFFF + 1  # we handle overflow here
 
+                    return end - start
 
+                round_a = dur((data.get('init_tx', {}) or {}).get('tx_ts', None),
+                              (data.get('response_rx', {}) or {}).get(
+                                  'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+                delay_b = dur(
+                    (data.get('init_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
+                    (data.get('response_tx', {}) or {}).get('tx_ts', None))
+                delay_a = dur(
+                    (data.get('response_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts',
+                                                            None), (data.get('final_tx', {}) or {}).get('tx_ts', None))
+                round_b = dur((data.get('response_tx', {}) or {}).get('tx_ts', None),
+                              (data.get('final_rx', {}) or {}).get(
+                                  'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
 
-                    round_a = dur((data.get('init_tx', {}) or {}).get('tx_ts', None), (data.get('response_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
-                    delay_b = dur((data.get('init_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None), (data.get('response_tx', {}) or {}).get('tx_ts', None))
-                    delay_a = dur((data.get('response_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None), (data.get('final_tx', {}) or {}).get('tx_ts', None))
-                    round_b = dur((data.get('response_tx', {}) or {}).get('tx_ts', None), (data.get('final_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+                record['round_a'] = round_a
+                record['delay_b'] = delay_b
+                record['delay_a'] = delay_a
+                record['round_b'] = round_b
 
-                    record['round_a'] = round_a
-                    record['delay_b'] = delay_b
-                    record['delay_a'] = delay_a
-                    record['round_b'] = round_b
+                def ci_or_none_to_rd(ci):
+                    if ci is None:
+                        return None
+                    else:
+                        return ci_to_rd(ci)
 
+                record['init_rd_cfo'] = ci_or_none_to_rd((data.get('init_rx', {}) or {}).get('ci', None))
+                record['response_rd_cfo'] = ci_or_none_to_rd((data.get('response_rx', {}) or {}).get('ci', None))
+                record['final_rd_cfo'] = ci_or_none_to_rd((data.get('final_rx', {}) or {}).get('ci', None))
 
-                    def ci_or_none_to_rd(ci):
-                        if ci is None:
-                            return None
-                        else:
-                            return ci_to_rd(ci)
+                if None not in [round_a, delay_b, delay_a, round_b]:
+                    relative_drift = float(round_a + delay_a) / float(round_b + delay_b)
+                    twr_tof = convert_ts_to_m((round_a - relative_drift * delay_b) * 0.5)
 
-                    record['init_rd_cfo'] = ci_or_none_to_rd((data.get('init_rx', {}) or {}).get('ci', None))
-                    record['response_rd_cfo'] = ci_or_none_to_rd((data.get('response_rx', {}) or {}).get('ci', None))
-                    record['final_rd_cfo'] = ci_or_none_to_rd((data.get('final_rx', {}) or {}).get('ci', None))
+                    record['relative_drift'] = relative_drift
+                    record['twr_tof_ds'] = twr_tof
 
+                    record['twr_tof_ss'] = convert_ts_to_m((round_a - record['response_rd_cfo'] * delay_b) * 0.5)
+                    record['twr_tof_ss_reverse'] = convert_ts_to_m((round_b - record['final_rd_cfo'] * delay_a) * 0.5)
 
-                    if None not in [round_a, delay_b, delay_a, round_b]:
-                        relative_drift = float(round_a+delay_a)/float(round_b+delay_b)
-                        twr_tof = convert_ts_to_m((round_a - relative_drift * delay_b)*0.5)
+                    if tdoa_src_dev:
 
-                        record['relative_drift'] = relative_drift
-                        record['twr_tof_ds'] = twr_tof
+                        record['tdoa'] = get_dist(testbed.dev_positions[da],
+                                                  testbed.dev_positions[tdoa_src_dev]) - get_dist(
+                            testbed.dev_positions[tdoa_src_dev], testbed.dev_positions[db])
+                        record['tdoa_device'] = tdoa_src_dev_number
 
-                        record['twr_tof_ss'] = convert_ts_to_m((round_a - record['response_rd_cfo'] * delay_b)*0.5)
-                        record['twr_tof_ss_reverse'] = convert_ts_to_m((round_b - record['final_rd_cfo'] * delay_a)*0.5)
+                        passive_m_a = dur((data.get('init_rx_passive', {}) or {}).get(
+                            'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
+                                          (data.get('response_rx_passive', {}) or {}).get(
+                                              'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+                        passive_m_b = dur((data.get('response_rx_passive', {}) or {}).get(
+                            'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
+                                          (data.get('final_rx_passive', {}) or {}).get(
+                                              'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
 
-                        if tdoa_src_dev:
+                        if None not in [passive_m_a, passive_m_b]:
+                            record['passive_m_a'] = passive_m_a
+                            record['passive_m_b'] = passive_m_b
 
-                            record['tdoa'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[tdoa_src_dev]) - get_dist(testbed.dev_positions[tdoa_src_dev], testbed.dev_positions[db])
-                            record['tdoa_device'] = tdoa_src_dev_number
+                            record['tdoa_a_relative_drift_ds'] = (record['passive_m_a'] + record['passive_m_b']) / (
+                                        record['round_a'] + record['delay_a'])
+                            record['tdoa_b_relative_drift_ds'] = (record['passive_m_a'] + record['passive_m_b']) / (
+                                        record['round_b'] + record['delay_b'])
 
-                            passive_m_a = dur((data.get('init_rx_passive', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None), (data.get('response_rx_passive', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
-                            passive_m_b = dur((data.get('response_rx_passive', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None), (data.get('final_rx_passive', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+                            record['tdoa_init_rd_cfo'] = ci_to_rd((data.get('init_rx_passive', {}) or {}).get('ci'))
+                            record['tdoa_response_rd_cfo'] = ci_to_rd(
+                                (data.get('response_rx_passive', {}) or {}).get('ci'))
+                            record['tdoa_final_rd_cfo'] = ci_to_rd((data.get('final_rx_passive', {}) or {}).get('ci'))
 
-                            if None not in [passive_m_a, passive_m_b]:
-                                record['passive_m_a'] = passive_m_a
-                                record['passive_m_b'] = passive_m_b
-
-                                record['tdoa_a_relative_drift_ds'] = (record['passive_m_a']+record['passive_m_b']) / (record['round_a']+record['delay_a'])
-                                record['tdoa_b_relative_drift_ds'] = (record['passive_m_a']+record['passive_m_b']) / (record['round_b']+record['delay_b'])
-
-                                record['tdoa_init_rd_cfo'] = ci_to_rd((data.get('init_rx_passive', {}) or {}).get('ci'))
-                                record['tdoa_response_rd_cfo'] = ci_to_rd((data.get('response_rx_passive', {}) or {}).get('ci'))
-                                record['tdoa_final_rd_cfo'] = ci_to_rd((data.get('final_rx_passive', {}) or {}).get('ci'))
-
-                                record['tdoa_est_ds'] = convert_ts_to_m(0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record['tdoa_b_relative_drift_ds'] * delay_b - passive_m_a)
-                                record['tdoa_est_ss_init'] = convert_ts_to_m(0.5 * record['tdoa_init_rd_cfo'] * round_a + 0.5 * record['tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                                record['tdoa_est_ss_final'] = convert_ts_to_m(0.5 * record['tdoa_final_rd_cfo'] * round_a + 0.5 * record['tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                                record['tdoa_est_ss_both'] = convert_ts_to_m(0.25 * record['tdoa_init_rd_cfo'] * round_a + 0.25 * record['tdoa_final_rd_cfo'] * round_a + 0.5 * record['tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                                record['tdoa_est_mixed'] = convert_ts_to_m(0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record['tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                    yield record
+                            record['tdoa_est_ds'] = convert_ts_to_m(
+                                0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record[
+                                    'tdoa_b_relative_drift_ds'] * delay_b - passive_m_a)
+                            record['tdoa_est_ss_init'] = convert_ts_to_m(
+                                0.5 * record['tdoa_init_rd_cfo'] * round_a + 0.5 * record[
+                                    'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                            record['tdoa_est_ss_final'] = convert_ts_to_m(
+                                0.5 * record['tdoa_final_rd_cfo'] * round_a + 0.5 * record[
+                                    'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                            record['tdoa_est_ss_both'] = convert_ts_to_m(
+                                0.25 * record['tdoa_init_rd_cfo'] * round_a + 0.25 * record[
+                                    'tdoa_final_rd_cfo'] * round_a + 0.5 * record[
+                                    'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                            record['tdoa_est_mixed'] = convert_ts_to_m(
+                                0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record[
+                                    'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                yield record
 
 
 # import testbed.trento_b as trento_b
@@ -493,8 +577,6 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
 #
 # print("Count")
 # print((gb['twr_tof'].count()).to_string())
-
-
 
 
 # TODO comment in!
@@ -533,10 +615,7 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
 #     print("{} & {:2.2f} & {:2.2f} & {:2.2f} \\\\ \\hline".format(i+1, est, fact, diff))
 
 
-
-#1 & XX & 10.34 & XX \\  \hline
-
-
+# 1 & XX & 10.34 & XX \\  \hline
 
 
 if __name__ == '__main__':
@@ -552,19 +631,20 @@ if __name__ == '__main__':
         init_cache(config['CACHE_DIR'])
 
     # We can skip several rounds here
-    skip_to_round = 0 #200?
-    up_to_round = 197 #200?
+    skip_to_round = 0  # 200?
+    up_to_round = 197  # 200?
     use_bias_correction = True
     tdoa_src_dev_number = 0
     log = 'job_tdma_long'
 
+
     def extract():
-        it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
+        it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
+                              bias_corrected=use_bias_correction)
         return pd.DataFrame.from_records(it)
 
+
     df = cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), extract)
-
-
 
     df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
 
