@@ -1607,9 +1607,258 @@ def export_loc_sim(config, export_dir):
         plt.savefig("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0)
         plt.close()
 
+
+def get_df(log, tdoa_src_dev_number, use_bias_correction):
+    def proc():
+        it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
+                              bias_corrected=use_bias_correction)
+        df = pd.DataFrame.from_records(it)
+        df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
+        df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
+        df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
+
+        if tdoa_src_dev_number is not None:
+            df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
+            df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
+            df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
+            df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
+            df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+        return df
+
+    return utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+
+def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_correction, skip_to_round = 0, up_to_round = None):
+    active_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+
+
+    if filter_passive_listener is not None:
+        passive_df = get_df(log, tdoa_src_dev_number=filter_passive_listener,
+                            use_bias_correction=use_bias_correction)
+    else:
+        tdoa_dfs = []
+
+        for dev_num in range(len(trento_b.devs)):
+            tdoa_dfs.append(get_df(log, tdoa_src_dev_number=dev_num, use_bias_correction=use_bias_correction))
+        passive_df = pd.concat(tdoa_dfs)
+
+    if skip_to_round is not None:
+        active_df = active_df[active_df['round'] >= skip_to_round]
+        passive_df = passive_df[passive_df['round'] >= skip_to_round]
+
+    if up_to_round is not None:
+        active_df = active_df[active_df['round'] <= up_to_round]
+        passive_df = passive_df[active_df['round'] <= up_to_round]
+
+    if filter_pair is not None:
+        active_df = active_df[active_df['pair'] == filter_pair]
+        passive_df = passive_df[passive_df['pair'] == filter_pair]
+
+    active_agg = active_df.agg(
+        twr_count=pd.NamedAgg(column='twr_tof_ds', aggfunc="count"),
+        dist=pd.NamedAgg(column='dist', aggfunc="max"),
+        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
+        twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
+        twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
+        twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
+        twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
+    )
+
+    active_agg = active_agg.transpose().agg('max')
+    active_dict = active_agg.to_dict()
+
+    #active_agg.to_csv('ds-vs-cfg-pair-{}-passive-{}-active.csv'.format(filter_pair, filter_passive_listener))
+
+    if passive_df['tdoa_est_ds'].count() != 0:
+        passive_df['tdoa_est_ds_err'] = passive_df['tdoa_est_ds'] - passive_df['tdoa']
+        passive_df['tdoa_est_ss_init_err'] = passive_df['tdoa_est_ss_init'] - passive_df['tdoa']
+        passive_df['tdoa_est_ss_final_err'] = passive_df['tdoa_est_ss_final'] - passive_df['tdoa']
+        passive_df['tdoa_est_ss_both_err'] = passive_df['tdoa_est_ss_both'] - passive_df['tdoa']
+        passive_df['tdoa_est_mixed_err'] = passive_df['tdoa_est_mixed'] - passive_df['tdoa']
+
+        passive_agg = passive_df.agg(
+            tdoa_count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
+            tdoa=pd.NamedAgg(column='tdoa', aggfunc="max"),
+            tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
+            tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
+            tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
+            tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
+            tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
+            tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
+            tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
+            tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
+            tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
+            tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
+        )
+        #passive_agg.to_csv('ds-vs-cfg-pair-{}-passive-{}-passive.csv'.format(filter_pair, filter_passive_listener))
+        passive_agg = passive_agg.transpose().agg('max')
+        passive_dict = passive_agg.to_dict()
+
+        for k in passive_dict:
+            active_dict[k] = passive_dict[k]
+
+    return active_dict
+
+
+def compute_all_agg_means_and_stds(log, use_bias_correction = True, skip_to_round = 0, up_to_round = None):
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+    passive_listeners = list(range(len(trento_b.devs)))
+    pairs = list(twr_df['pair'].unique())
+
+    rows = []
+    for filter_passive_listener in passive_listeners:
+        for filter_pair in pairs:
+            res = compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
+            res['_filter_pair'] = filter_pair
+            res['_filter_passive_listener'] = filter_passive_listener
+            rows.append(res)
+    return pd.DataFrame.from_records(rows)
+
+
+def cached_compute_all_agg_means_and_stds(log, use_bias_correction = True, skip_to_round = 0, up_to_round = None):
+    def proc():
+        return compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
+    return utility.cached_dt(('cached_compute_all_means_and_stds', log, use_bias_correction,skip_to_round, up_to_round, 1), proc)
+
+
+def export_twr_scatter(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+
+    fig, ax = plt.subplots()
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+
+    pair = '9-7'
+
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+    twr_df = twr_df[twr_df['pair'] == pair]
+    twr_df.plot.scatter('round', 'twr_tof_ds_err', ax=ax, color='black', label="TWR")
+
+    twr_df = get_df(log, tdoa_src_dev_number=4, use_bias_correction=use_bias_correction)
+    twr_df = twr_df[twr_df['pair'] == pair]
+    twr_df['tdoa_est_ds_err'] = twr_df['tdoa_est_ds'] - twr_df['tdoa']
+    twr_df.plot.scatter('round', 'tdoa_est_ds_err', ax=ax, color='blue', label="TDoA 4")
+
+    twr_df = get_df(log, tdoa_src_dev_number=11, use_bias_correction=use_bias_correction)
+    twr_df = twr_df[twr_df['pair'] == pair]
+    twr_df['tdoa_est_ds_err'] = twr_df['tdoa_est_ds'] - twr_df['tdoa']
+    twr_df.plot.scatter('round', 'tdoa_est_ds_err', ax=ax, color='red', label="TDoA 11")
+
+    q_low = twr_df["tdoa_est_ds_err"].quantile(0.01)
+    q_hi = twr_df["tdoa_est_ds_err"].quantile(0.99)
+    df_filtered = twr_df[(twr_df["tdoa_est_ds_err"] < q_hi) & (twr_df["tdoa_est_ds_err"] > q_low)]
+    df_filtered.plot.scatter('round', 'tdoa_est_ds_err', ax=ax, color='yellow', label="TDoA 11 Filtered")
+
+    plt.show()
+    exit()
+
+
+def export_twr_vs_tdoa_scatter(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+
+    all_df = all_df[all_df['tdoa_count'].notna()]
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+
+    #gb = all_df.groupby(by='_filter_pair').agg('median') #'.quantile([0, 0.25, 0.5, 0.75, 0.95, 1])
+    # all_df = all_df[['ratio']]
+    # all_df['ratio'].boxplot()
+
+    fig, ax = plt.subplots()
+    all_df.plot.scatter('twr_tof_ds_err_std', 'tdoa_est_ds_err_std', ax=ax)
+
+
+    def get_tdoa_dist_a(v):
+        a, b = v['_filter_pair'].split('-')
+        a, b = int(a), int(b)
+        p = v['_filter_passive_listener']
+
+        dist_a = get_dist(trento_b.dev_positions[trento_b.devs[a]], trento_b.dev_positions[trento_b.devs[p]])
+        dist_b = get_dist(trento_b.dev_positions[trento_b.devs[b]], trento_b.dev_positions[trento_b.devs[p]])
+
+        return dist_a
+
+    def get_tdoa_dist_b(v):
+        a, b = v['_filter_pair'].split('-')
+        a, b = int(a), int(b)
+        p = v['_filter_passive_listener']
+
+        dist_a = get_dist(trento_b.dev_positions[trento_b.devs[a]], trento_b.dev_positions[trento_b.devs[p]])
+        dist_b = get_dist(trento_b.dev_positions[trento_b.devs[b]], trento_b.dev_positions[trento_b.devs[p]])
+
+        return dist_b
+
+    for k, v in all_df.iterrows():
+        ax.annotate("{} {} ({:.2f}, {:.2f}, {:.2f})".format(v['_filter_pair'], v['_filter_passive_listener'], get_tdoa_dist_a(v), get_tdoa_dist_b(v), v['tdoa']), (v['twr_tof_ds_err_std'], v['tdoa_est_ds_err_std']),  xytext=(5, -5), textcoords='offset points', family='sans-serif', fontsize=6, color='black')
+
+    plt.axline((0,0), slope=np.sqrt(2.5/0.5))
+
+    plt.show()
+
+    print(all_df)
+    exit()
+
+
+
+
+
 def export_testbed_ds_vs_cfo_comparison(config, export_dir):
 
+    # We can skip several rounds here
+    skip_to_round = 0  # 200?
+    up_to_round = 197  # 200?
+    log = 'job_tdma_long'
 
+
+
+
+
+    use_bias_correction = True
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+    # Export
+    passive_listeners = list(range(len(trento_b.devs))) + [None]
+    pairs = list(twr_df['pair'].unique()) + [None]
+
+
+    for filter_passive_listener in passive_listeners:
+        for filter_pair in pairs:
+            res = compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_correction)
+
+            print(res)
+            exit()
+
+            plt.clf()
+
+            plt.bar
+            agg.plot.bar(y=['twr_tof_ds_err_mean', 'tdoa_est_ds_err_mean-Newton'], yerr=[agg['twr_tof_ds_err_std', 'tdoa_est_ds_err_std']], width=0.8)
+            plt.show()
+
+            print(agg)
+
+
+            # stds = [df['tdoa_std'], df['gn_std'], df['our_std']]
+            #
+            # plt.clf()
+            #
+            # ax =
+            #
+            #
+            # print(res)
+
+
+
+    # we have a lot of dimensions to checkout: individual pairs
     # Extracted from node 0?, node 0 to all other nodes, tdoa values extracted from node
     # ToF (DS)
     # ToF (SS)
@@ -1619,67 +1868,6 @@ def export_testbed_ds_vs_cfo_comparison(config, export_dir):
     # TDoA (SS-final)
     # TDoA (SS-both)
 
-    # We can skip several rounds here
-    skip_to_round = 0  # 200?
-    up_to_round = 197  # 200?
-    use_bias_correction = True
-    log = 'job_tdma_long'
-
-
-    def get_df(log, tdoa_src_dev_number, use_bias_correction):
-        def proc():
-            it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
-                                  bias_corrected=use_bias_correction)
-            df = pd.DataFrame.from_records(it)
-            df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
-            df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
-            df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
-
-            if tdoa_src_dev_number is not None:
-                df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
-                df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
-                df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
-                df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
-                df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
-            return df
-        return utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
-
-    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
-
-    tdoa_dfs = []
-
-    for dev_num in range(len(trento_b.devs)):
-        tdoa_dfs.append(get_df(log, tdoa_src_dev_number=dev_num, use_bias_correction=use_bias_correction))
-
-    aggr_df = pd.concat(tdoa_dfs)
-    print(len(twr_df.index), len(aggr_df.index))
-
-    exit()
-
-    gb = df.groupby('pair').agg(
-        count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
-        dist=pd.NamedAgg(column='dist', aggfunc="min"),
-        tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
-        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
-        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
-        twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
-        twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
-        twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
-        twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
-        tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
-        tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
-        tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
-        tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
-        tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
-        tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
-        tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
-        tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
-        tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
-        tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
-    )
-    gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
-
-    pass
 
 if __name__ == '__main__':
 
@@ -1714,7 +1902,8 @@ if __name__ == '__main__':
         #export_testbed_variance_calculated_tof,
         #export_testbed_variance_calculated_tof_ci_avg,
         #export_tof_simulation_response_std,
-        export_testbed_ds_vs_cfo_comparison,
+        #export_twr_scatter,
+        export_twr_vs_tdoa_scatter,
         #export_loc_sim,
     ]
 
