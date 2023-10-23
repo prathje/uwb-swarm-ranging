@@ -3,6 +3,9 @@ import progressbar
 import numpy as np
 import json
 
+import logs
+import utility
+
 from testbed import lille, trento_a, trento_b
 
 from logs import gen_estimations_from_testbed_run, gen_measurements_from_testbed_run, gen_delay_estimates_from_testbed_run
@@ -12,6 +15,7 @@ from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, con
 import matplotlib
 import matplotlib.pyplot as plt
 from utility import slugify, cached, init_cache, load_env_config, set_global_cache_prefix_by_config
+from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 
 import pandas as pd
 
@@ -24,13 +28,12 @@ COLOR_MAP = 'tab10'
 c_in_air = 299702547.236
 
 
-PROTOCOL_NAME = "ALADIn"
-
+PROTOCOL_NAME = "X"
 
 runs = {
-        'trento_a': 'job_fixed',  # [(6,3)],
-        'trento_b': 'job_tdoa',
-        'lille': 'job_fixed'  # [(11,3), (10,3), (7,1), (5,0)],
+        'trento_a': 'job_fixed',
+        'trento_b': None,
+        'lille': None
 }
 
 src_devs = {
@@ -42,6 +45,7 @@ src_devs = {
 def load_plot_defaults():
     # Configure as needed
     plt.rc('lines', linewidth=2.0)
+    #plt.rc('image', cmap='viridis')
     plt.rc('legend', framealpha=1.0, fancybox=True)
     plt.rc('errorbar', capsize=3)
     plt.rc('pdf', fonttype=42)
@@ -1215,13 +1219,13 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
     from sim_tdoa import sim
 
-    limit = 2.0
+    limit = 6.0
     step = 0.1
     response_delay_exps = np.arange(-limit, limit+step, step)
 
     xs = response_delay_exps
     num_sims = 10000
-    node_drift_std=10.0/1000000.0
+    node_drift_std= 10.0/1000000.0
 
     for resp_delay_s in [0.001, 0.002, 0.004]:
 
@@ -1264,7 +1268,6 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
 
         df = pd.DataFrame(data_rows)
-        print("Response STDs", data_rows)
 
         df = df.rename(columns={
             "tof_std": "ToF SD",
@@ -1275,14 +1278,16 @@ def export_tdoa_simulation_response_std(config, export_dir):
             "tdoa_ds_half_cor_std": "TDoA DS (w/ DC) SD"
         })
 
+        print("MIN", df.min())
+
         plt.clf()
         ax = df.plot.line(x='rdr', y=[
             'ToF SD',
             #'ToF DS SD',
             'TDoA SD',
             #'TDoA DS SD',
-            'TDoA (w/ DC) SD',
-            'TDoA DS (w/ DC) SD'
+            #'TDoA (w/ DC) SD',
+            #'TDoA DS (w/ DC) SD'
         ],
                           style=['*-', 'o-', '^-', 'x-']
           ) # todo plot with markers and different line styles...
@@ -1294,8 +1299,8 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
 
 
-        #plt.ylim(0.2, 1.8)
-        plt.ylim(0.2, 15)
+        plt.ylim(0.2, 1.8)
+        #plt.ylim(0.2, 15)
 
         ax.set_axisbelow(True)
         ax.set_xlabel("Delay Ratio $\\frac{D_A}{D_B}$")
@@ -1335,6 +1340,12 @@ def export_tdoa_simulation_response_std(config, export_dir):
         labels.append(r'$\sqrt{0.5}\sigma$')
         labels.append(r'$\sqrt{2.5}\sigma$')
 
+        #
+        # ticks.append(np.sqrt(0.5)*np.sqrt(0.5))
+        # ticks.append(np.sqrt(0.5)*np.sqrt(2.5))
+        # labels.append(r'$\sqrt{\frac{0.5}{2}}\sigma$')
+        # labels.append(r'$\sqrt{\frac{2.5}{2}}\sigma$')
+
         ax.set_yticks(ticks)
         ax.set_yticklabels(labels)
 
@@ -1359,7 +1370,7 @@ def export_tof_simulation_response_std(config, export_dir):
     response_delay_exps = np.arange(-limit, limit+step, step)
 
     xs = response_delay_exps
-    num_sims = 100000
+    num_sims = 1000
     num_repetitions = 1
     resp_delay_s = 1.0
 
@@ -1388,10 +1399,7 @@ def export_tof_simulation_response_std(config, export_dir):
 
     data_rows = cached(('export_tdoa_simulation_response_mean', limit, step, 10, num_sims, resp_delay_s), proc)
 
-    print(data_rows)
-
     df = pd.DataFrame(data_rows)
-    print("min tof std", df['tof_std'].min())
 
     df = df.rename(columns={"tof_mean": "ToF Mean", "tof_std": "ToF SD"})
 
@@ -1534,7 +1542,7 @@ def export_loc_sim(config, export_dir):
     import sim_localization_variance
 
     samples_per_side = 200
-    repetitions = 200
+    repetitions = 500
     meas_std = 0.05
 
     def tof_proc():
@@ -1569,22 +1577,109 @@ def export_loc_sim(config, export_dir):
 
         for (x, y) in sim_localization_variance.NODES_POSITIONS:
             plt.plot(
-                (y / sim_localization_variance.SIDE_LENGTH)*samples_per_side,
+                (y / sim_localization_variance.SIDE_LENGTH) * samples_per_side,
                 (x / sim_localization_variance.SIDE_LENGTH) * samples_per_side,
                 'wx',
             )
 
-        cbar = ax.figure.colorbar(im, ax=ax, location='right', format=lambda x, _: "{:.2f}".format(x), shrink=0.65, aspect=20*0.7)
+        cbar = ax.figure.colorbar(im, ax=ax, location='right', format=lambda x, _: "{:.2f}".format(x), shrink=0.68, pad=0.025)
         cbar.ax.set_ylabel("Localization RMSE [m]", rotation=-90, va="bottom")
+
+        ax.xaxis.set_major_locator(MultipleLocator(2*round(samples_per_side / sim_localization_variance.SIDE_LENGTH)))
+        ax.yaxis.set_major_locator(MultipleLocator(2*round(samples_per_side / sim_localization_variance.SIDE_LENGTH)))
+        ax.invert_yaxis()
+
+
+        ax.xaxis.set_major_formatter(lambda x, pos: round((x/ samples_per_side) * sim_localization_variance.SIDE_LENGTH))
+        ax.yaxis.set_major_formatter(lambda x, pos: round((x/ samples_per_side) * sim_localization_variance.SIDE_LENGTH))
+
+        ax.set_xlabel("X [m]")
+        ax.set_ylabel("Y [m]")
+
+        plt.xlim(0.0, (10.0/sim_localization_variance.SIDE_LENGTH)*samples_per_side)
+        plt.ylim(0.0, (10.0/sim_localization_variance.SIDE_LENGTH)*samples_per_side)
+
 
         fig.set_size_inches(4.0, 4.0)
         plt.tight_layout()
 
         #plt.show()
-        plt.savefig("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0, dpi=600)
+        plt.savefig("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0)
         plt.close()
 
+def export_testbed_ds_vs_cfo_comparison(config, export_dir):
 
+
+    # Extracted from node 0?, node 0 to all other nodes, tdoa values extracted from node
+    # ToF (DS)
+    # ToF (SS)
+    # TDoA (DS)
+    # TDoA (Mixed)
+    # TDoA (SS-init)
+    # TDoA (SS-final)
+    # TDoA (SS-both)
+
+    # We can skip several rounds here
+    skip_to_round = 0  # 200?
+    up_to_round = 197  # 200?
+    use_bias_correction = True
+    log = 'job_tdma_long'
+
+
+    def get_df(log, tdoa_src_dev_number, use_bias_correction):
+        def proc():
+            it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
+                                  bias_corrected=use_bias_correction)
+            df = pd.DataFrame.from_records(it)
+            df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
+            df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
+            df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
+
+            if tdoa_src_dev_number is not None:
+                df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
+                df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
+                df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
+                df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
+                df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+            return df
+        return utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+    tdoa_dfs = []
+
+    for dev_num in range(len(trento_b.devs)):
+        tdoa_dfs.append(get_df(log, tdoa_src_dev_number=dev_num, use_bias_correction=use_bias_correction))
+
+    aggr_df = pd.concat(tdoa_dfs)
+    print(len(twr_df.index), len(aggr_df.index))
+
+    exit()
+
+    gb = df.groupby('pair').agg(
+        count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
+        dist=pd.NamedAgg(column='dist', aggfunc="min"),
+        tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
+        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
+        twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
+        twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
+        twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
+        twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
+        tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
+        tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
+        tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
+        tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
+        tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
+        tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
+        tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
+        tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
+        tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
+        tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
+    )
+    gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
+
+    pass
 
 if __name__ == '__main__':
 
@@ -1619,7 +1714,8 @@ if __name__ == '__main__':
         #export_testbed_variance_calculated_tof,
         #export_testbed_variance_calculated_tof_ci_avg,
         #export_tof_simulation_response_std,
-        export_loc_sim
+        export_testbed_ds_vs_cfo_comparison,
+        #export_loc_sim,
     ]
 
     for step in progressbar.progressbar(steps, redirect_stdout=True):

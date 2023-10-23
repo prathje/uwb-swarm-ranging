@@ -385,7 +385,7 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
         tdoa_src_dev = None
 
     for r in range(0, max_round+1):
-
+            print(r)
             for (a, da) in enumerate(testbed.devs):
                 for (b, db) in enumerate(testbed.devs):
 
@@ -395,7 +395,6 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
                     record = {}
 
                     record['round'] = int(r)
-                    print(r)
                     record['initiator'] = a
                     record['responder'] = b
                     record['pair'] = "{}-{}".format(a,b)
@@ -446,6 +445,7 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
                         record['twr_tof_ds'] = twr_tof
 
                         record['twr_tof_ss'] = convert_ts_to_m((round_a - record['response_rd_cfo'] * delay_b)*0.5)
+                        record['twr_tof_ss_reverse'] = convert_ts_to_m((round_b - record['final_rd_cfo'] * delay_a)*0.5)
 
                         if tdoa_src_dev:
 
@@ -538,21 +538,39 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
 
 
 
+
 if __name__ == '__main__':
     import testbed.trento_b as trento_b
+    from utility import cached_dt
+    from utility import init_cache, load_env_config, set_global_cache_prefix_by_config
+
+    config = load_env_config()
+
+    assert 'EXPORT_DIR' in config and config['EXPORT_DIR']
+
+    if 'CACHE_DIR' in config and config['CACHE_DIR']:
+        init_cache(config['CACHE_DIR'])
 
     # We can skip several rounds here
-    skip_to_round = 5 #200?
+    skip_to_round = 0 #200?
+    up_to_round = 197 #200?
     use_bias_correction = True
+    tdoa_src_dev_number = 0
+    log = 'job_tdma_long'
 
-    it = extract_tdma_twr(trento_b, 'job_tdma', tdoa_src_dev_number=2, bias_corrected=use_bias_correction)
+    def extract():
+        it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
+        return pd.DataFrame.from_records(it)
 
-    df = pd.DataFrame.from_records(it)
+    df = cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), extract)
 
-    df = df[df['round'] >= skip_to_round]
+
+
+    df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
 
     df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
     df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
+    df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
     df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
     df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
     df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
@@ -560,13 +578,15 @@ if __name__ == '__main__':
     df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
 
     gb = df.groupby('pair').agg(
-        count=pd.NamedAgg(column='pair', aggfunc="count"),
+        count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
         dist=pd.NamedAgg(column='dist', aggfunc="min"),
         tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
         twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
         twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
         twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
         twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
+        twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
+        twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
         tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
         tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
         tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
@@ -578,4 +598,4 @@ if __name__ == '__main__':
         tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
         tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
     )
-    gb.to_csv('out.csv')
+    gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
