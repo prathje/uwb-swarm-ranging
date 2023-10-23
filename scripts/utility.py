@@ -59,6 +59,20 @@ def cached(id, proc_cb=None):
     else:
         return proc_cb()
 
+
+def cached_dt(id, proc_cb=None):
+    import pandas as pd
+    global global_cache_prefix
+    if export_cache_dir:
+        cache_file = os.path.join(export_cache_dir, slugify(id) + '.pkl.gz')
+        if not os.path.isfile(cache_file):
+            df = proc_cb()
+            df.to_pickle(cache_file, compression='gzip')
+
+        return pd.read_pickle(cache_file)
+    else:
+        return proc_cb()
+
 def init_cache(path):
     global export_cache_dir
     export_cache_dir = path
