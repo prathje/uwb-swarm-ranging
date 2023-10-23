@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(main);
 
 #define INITIAL_DELAY_MS 5000
 #define SLOT_DUR_UUS 2000
+
 #define TX_BUFFER_DELAY_UUS 1000
 #define TX_INVOKE_MIN_DELAY_UUS 500
 
@@ -32,6 +33,7 @@ LOG_MODULE_REGISTER(main);
 //#define SLOT_DUR_UUS 2000000
 //#define TX_BUFFER_DELAY_UUS 500000
 
+#define TEST_RESP_DELAYS 0
 
 #define LOG_SCHEDULING 0
 
@@ -135,7 +137,30 @@ static void sleep_until_dwt_ts(uint64_t wanted_ts) {
 K_SEM_DEFINE(round_start_sem, 0, 1);
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
-    return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+
+    if (!TEST_RESP_DELAYS) {
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+    } else {
+        r -= 5;
+
+        if (r <  0) {
+            return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+        }
+        else {
+            uint8_t m = slot % 3;
+            uint64_t first_mult = (r/5)+2; // we need at least 1 slot dur
+            uint64_t second_mult = MAX(2, 10-first_mult);
+            uint64_t half_slot_dur = SLOT_DUR_UUS/2;
+
+            if (m == 0) {
+                return UUS_TO_DWT_TS(half_slot_dur*first_mult);
+            } else if(m == 1) {
+                return UUS_TO_DWT_TS(half_slot_dur*second_mult);
+            } else {
+                return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+            }
+        }
+     }
 }
 
 int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
