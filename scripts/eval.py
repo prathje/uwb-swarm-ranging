@@ -2038,7 +2038,7 @@ def export_testbed_ds_vs_cfo_comparison(config, export_dir):
     ax = plt.gca()
     plt.bar(labels, ys, yerr=stds, width=0.8, color=colors)
 
-    plt.ylim(0.0, 30.0)
+    plt.ylim(0.0, 25.0)
     ax.set_axisbelow(True)
     ax.set_xlabel("Measurement Type")
     ax.set_ylabel("Mean Absolute Error [cm]")
