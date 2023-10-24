@@ -33,7 +33,7 @@ LOG_MODULE_REGISTER(main);
 //#define SLOT_DUR_UUS 2000000
 //#define TX_BUFFER_DELAY_UUS 500000
 
-#define TEST_RESP_DELAYS 0
+#define TEST_RESP_DELAYS 1
 
 #define LOG_SCHEDULING 0
 
@@ -133,7 +133,6 @@ static void sleep_until_dwt_ts(uint64_t wanted_ts) {
     }
 }
 
-
 K_SEM_DEFINE(round_start_sem, 0, 1);
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
@@ -141,23 +140,26 @@ uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     if (!TEST_RESP_DELAYS) {
         return UUS_TO_DWT_TS(SLOT_DUR_UUS);
     } else {
-        r -= 5;
+        r -= 10; // Schedule some dummy rounds in the beginning
 
         if (r <  0) {
             return UUS_TO_DWT_TS(SLOT_DUR_UUS);
         }
         else {
+            uint64_t reps = 10;
+
             uint8_t m = slot % 3;
-            uint64_t first_mult = (r/5)+2; // we need at least 1 slot dur
-            uint64_t second_mult = MAX(2, 10-first_mult);
+            uint64_t overall_half_slot_dur = 20;
             uint64_t half_slot_dur = SLOT_DUR_UUS/2;
+            int64_t first_mult = (r/reps)+2; // we need at least 2 slot dur
+            uint64_t second_mult = MAX(2, (int64_t)overall_half_slot_dur+2-first_mult); // we need at least 2 slot dur at any point
 
             if (m == 0) {
                 return UUS_TO_DWT_TS(half_slot_dur*first_mult);
             } else if(m == 1) {
                 return UUS_TO_DWT_TS(half_slot_dur*second_mult);
             } else {
-                return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+                return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
             }
         }
      }
