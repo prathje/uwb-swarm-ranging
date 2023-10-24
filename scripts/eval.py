@@ -55,59 +55,6 @@ def load_plot_defaults():
     plt.rcParams['axes.axisbelow'] = True
 
 
-def export_simulation_performance(config, export_dir):
-
-    from sim import get_sim_data_rows
-
-    xs = [16, 64, 256, 1024]
-    num_repetitions = 100
-
-    def proc():
-        return get_sim_data_rows(xs, num_repetitions)
-
-    data_rows = cached(('sim', xs, num_repetitions), proc)
-
-    df = pd.DataFrame(data_rows)
-
-    # df.plot.bar(x='pair',y=['dist', 'est_distance_uncalibrated', 'est_distance_factory', 'est_distance_calibrated'])
-    df = df.rename(columns={"gn_mean": "Gauss-Newton", "tdoa_mean": "TDoA", "our_mean": PROTOCOL_NAME})
-
-    stds = [df['tdoa_std'], df['gn_std'], df['our_std']]
-
-    plt.clf()
-
-    ax = df.plot.bar(x='num_measurements', y=['TDoA', 'Gauss-Newton', PROTOCOL_NAME], yerr=stds, width=0.8)
-
-
-    plt.ylim(0.0, 14.0)
-    ax.set_axisbelow(True)
-    ax.set_xlabel("Number of Measurement Rounds")
-    ax.set_ylabel("Mean RMSE [cm]")
-
-
-    stds_as_np = np.array(stds)
-    stds_as_np = np.ravel(stds_as_np, order='C')
-
-    counter = 0
-    for p in ax.patches:
-        height = p.get_height()
-        if np.isnan(height):
-            height = 0
-
-        ax.text(p.get_x() + p.get_width() / 2., height+stds_as_np[counter], "{:.1f}\n[{:.1f}]".format(height, stds_as_np[counter]), fontsize=9, color='black', ha='center', va='bottom')
-
-        # ax.text(p.get_x() + p.get_width()/2., 0.5, '%.2f' % stds[offset], fontsize=12, color='black', ha='center', va='bottom')
-        counter += 1
-
-    plt.grid(color='lightgray', linestyle='dashed')
-
-    plt.gcf().set_size_inches(6.0, 5.5)
-    plt.tight_layout()
-
-    plt.savefig("{}/sim_rmse.pdf".format(export_dir), bbox_inches = 'tight', pad_inches = 0)
-    #plt.show()
-
-    plt.close()
 
 
 
@@ -1658,10 +1605,13 @@ def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_c
         twr_count=pd.NamedAgg(column='twr_tof_ds', aggfunc="count"),
         dist=pd.NamedAgg(column='dist', aggfunc="max"),
         twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+        twr_tof_ds_mae=pd.NamedAgg(column='twr_tof_ds_err', aggfunc=lambda x: x.abs().mean()),
         twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
         twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
+        twr_tof_ss_mae=pd.NamedAgg(column='twr_tof_ss_err', aggfunc=lambda x: x.abs().mean()),
         twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
         twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
+        twr_tof_ss_reverse_mae=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc=lambda x: x.abs().mean()),
         twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
     )
 
@@ -1681,14 +1631,19 @@ def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_c
             tdoa_count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
             tdoa=pd.NamedAgg(column='tdoa', aggfunc="max"),
             tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
+            tdoa_est_ds_mae=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc=lambda x: x.abs().mean()),
             tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
             tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
+            tdoa_est_ss_init_mae=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc=lambda x: x.abs().mean()),
             tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
             tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
+            tdoa_est_ss_both_mae=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc=lambda x: x.abs().mean()),
             tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
             tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
+            tdoa_est_ss_final_mae=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc=lambda x: x.abs().mean()),
             tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
             tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
+            tdoa_est_mixed_mae=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc=lambda x: x.abs().mean()),
             tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
         )
         #passive_agg.to_csv('ds-vs-cfg-pair-{}-passive-{}-passive.csv'.format(filter_pair, filter_passive_listener))
@@ -1872,6 +1827,7 @@ def export_new_twr_variance_based_model(config, export_dir):
         a, b = int(a), int(b)
         return np.sqrt(var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
 
+
     all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
     all_df = all_df[all_df['tdoa_count'].notna()]
 
@@ -1888,11 +1844,126 @@ def export_new_twr_variance_based_model(config, export_dir):
 
     plt.axline((0,0), slope=1.0)
 
+    all_df['ss_res'] = (all_df['tdoa_est_ds_err_std']-all_df['expected_std']) * (all_df['tdoa_est_ds_err_std']-all_df['expected_std'])
+    all_df['ss_tot'] = (all_df['tdoa_est_ds_err_std']-all_df['tdoa_est_ds_err_std'].mean()) * (all_df['tdoa_est_ds_err_std']-all_df['tdoa_est_ds_err_std'].mean())
+
+    r2 = 1- all_df['ss_res'].sum() / all_df['ss_tot'].sum()
+    print("R2 score", r2)
+
+
+    rmse = ((all_df['expected_std'] - all_df['tdoa_est_ds_err_std']) ** 2).mean() ** .5
+    print("rmse", rmse)
+
+
     plt.show()
 
     print(all_df)
     exit()
 
+
+def export_new_twr_variance_based_model_using_ss_diff(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+    twr_df = twr_df[twr_df['round'] >= 0]
+
+    twr_df['twr_ss_diff'] = twr_df['twr_tof_ss']-twr_df['twr_tof_ss_reverse']
+
+    var_df = twr_df.groupby('pair').agg({'twr_ss_diff': 'var'})
+    var_dict = var_df.to_dict()['twr_ss_diff']
+
+    # The variance we get is 0.5 the one we need
+
+    def compute_exp_std(pair, p):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
+        #return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)])
+
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+    all_df = all_df[all_df['tdoa_count'].notna()]
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+    fig, ax = plt.subplots()
+
+    all_df['expected_std'] = all_df.apply(lambda x: compute_exp_std(x['_filter_pair'], x['_filter_passive_listener']), axis=1)
+
+    compare_axis_y = 'tdoa_est_ss_both_err_std'
+    compare_axis_x = 'expected_std'
+
+    all_df.plot.scatter(compare_axis_y, compare_axis_x, ax=ax)
+
+    for k, v in all_df.iterrows():
+        ax.annotate("{}".format(v['_filter_pair']), (v[compare_axis_y], v['expected_std']),  xytext=(5, -5), textcoords='offset points', family='sans-serif', fontsize=6, color='black')
+
+    plt.axline((0,0), slope=1.0)
+
+    all_df['ss_res'] = (all_df[compare_axis_y]-all_df['expected_std']) * (all_df[compare_axis_y]-all_df['expected_std'])
+
+    print("mean", (all_df[compare_axis_y]-all_df['expected_std']).mean())
+
+    all_df['ss_tot'] = (all_df[compare_axis_y]-all_df[compare_axis_y].mean()) * (all_df[compare_axis_y]-all_df[compare_axis_y].mean())
+
+    r2 = 1- all_df['ss_res'].sum() / all_df['ss_tot'].sum()
+    print("R2 score", r2)
+
+    plt.show()
+
+    print(all_df)
+    exit()
+
+
+def export_new_twr_variance_based_model_using_ds_diff(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+    twr_df['twr_ds_diff'] = twr_df['round_a'] - twr_df['relative_drift']*twr_df['delay_b'] - twr_df['relative_drift']*twr_df['round_b'] + twr_df['delay_a']
+
+
+    var_df = twr_df.groupby('pair').agg({'twr_ds_diff': 'var'})
+    var_dict = var_df.to_dict()['twr_ds_diff']
+
+    # The variance we get is 0.5 the one we need
+
+    print(var_dict)
+    exit()
+    def compute_exp_std(pair, p):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
+
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+    all_df = all_df[all_df['tdoa_count'].notna()]
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+    fig, ax = plt.subplots()
+
+    all_df['expected_std'] = all_df.apply(lambda x: compute_exp_std(x['_filter_pair'], x['_filter_passive_listener']), axis=1)
+    all_df.plot.scatter('tdoa_est_ss_both_err_std', 'expected_std', ax=ax)
+
+    for k, v in all_df.iterrows():
+        ax.annotate("{}".format(v['_filter_pair']), (v['tdoa_est_ss_both_err_std'], v['expected_std']),  xytext=(5, -5), textcoords='offset points', family='sans-serif', fontsize=6, color='black')
+
+    plt.axline((0,0), slope=1.0)
+
+    all_df['ss_res'] = (all_df['tdoa_est_ss_both_err_std']-all_df['expected_std']) * (all_df['tdoa_est_ss_both_err_std']-all_df['expected_std'])
+    all_df['ss_tot'] = (all_df['tdoa_est_ss_both_err_std']-all_df['tdoa_est_ss_both_err_std'].mean()) * (all_df['tdoa_est_ss_both_err_std']-all_df['tdoa_est_ss_both_err_std'].mean())
+
+    r2 = 1- all_df['ss_res'].sum() / all_df['ss_tot'].sum()
+    print("R2 score", r2)
+
+    plt.show()
+
+    print(all_df)
+    exit()
 
 def export_twr_scatter_dist(config, export_dir):
     log = 'job_tdma_very_long'
@@ -1912,59 +1983,90 @@ def export_twr_scatter_dist(config, export_dir):
 
 
 
-
 def export_testbed_ds_vs_cfo_comparison(config, export_dir):
 
     # We can skip several rounds here
-    skip_to_round = 0  # 200?
-    up_to_round = 197  # 200?
-    log = 'job_tdma_long'
+    skip_to_round = 0
+    up_to_round = None
+    log = 'job_tdma_long' # TOOD: export with new data!!!
+
+    use_bias_correction = False
+    vals = compute_means_and_stds(log, None, None, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
+
+    ys = [
+        vals['twr_tof_ds_mae']*100.0,
+        vals['twr_tof_ss_mae']*100.0,
+        vals['tdoa_est_ds_mae']*100.0,
+        vals['tdoa_est_mixed_mae']*100.0,
+        vals['tdoa_est_ss_both_mae']*100.0,
+        vals['tdoa_est_ss_init_mae']*100.0,
+        vals['tdoa_est_ss_final_mae']*100.0,
+    ]
+    
+    stds = [
+        vals['twr_tof_ds_err_std']*100.0,
+        vals['twr_tof_ss_err_std']*100.0,
+        vals['tdoa_est_ds_err_std']*100.0,
+        vals['tdoa_est_mixed_err_std']*100.0,
+        vals['tdoa_est_ss_both_err_std']*100.0,
+        vals['tdoa_est_ss_init_err_std']*100.0,
+        vals['tdoa_est_ss_final_err_std']*100.0,
+    ]
+
+    labels = [
+        "ToF\nDS",
+        "ToF\nSS",
+        "TDoA\nDS",
+        "TDoA\nMixed",
+        "TDoA\nSS-Both",
+        "TDoA\nSS-Init",
+        "TDoA\nSS-Final",
+    ]
+
+    colors=[
+        'C0',
+        'C0',
+        'C1',
+        'C1',
+        'C1',
+        'C1',
+        'C1'
+    ]
+
+    plt.clf()
+
+    ax = plt.gca()
+    plt.bar(labels, ys, yerr=stds, width=0.8, color=colors)
+
+    plt.ylim(0.0, 30.0)
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Measurement Type")
+    ax.set_ylabel("Mean Absolute Error [cm]")
+
+    stds_as_np = np.array(stds)
+    stds_as_np = np.ravel(stds_as_np, order='C')
+
+    counter = 0
+    for p in ax.patches:
+        height = p.get_height()
+        if np.isnan(height):
+            height = 0
+
+        ax.text(p.get_x() + p.get_width() / 2., height + stds_as_np[counter],
+                "{:.1f}\n[{:.1f}]".format(height, stds_as_np[counter]), fontsize=9, color='black', ha='center',
+                va='bottom')
+
+        counter += 1
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/mae_comparison.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.close()
 
 
-    use_bias_correction = True
-    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
-
-    # Export
-    passive_listeners = list(range(len(trento_b.devs))) + [None]
-    pairs = list(twr_df['pair'].unique()) + [None]
-
-
-    for filter_passive_listener in passive_listeners:
-        for filter_pair in pairs:
-            res = compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_correction)
-
-            print(res)
-            exit()
-
-            plt.clf()
-
-            plt.bar
-            agg.plot.bar(y=['twr_tof_ds_err_mean', 'tdoa_est_ds_err_mean-Newton'], yerr=[agg['twr_tof_ds_err_std', 'tdoa_est_ds_err_std']], width=0.8)
-            plt.show()
-
-            print(agg)
-
-
-            # stds = [df['tdoa_std'], df['gn_std'], df['our_std']]
-            #
-            # plt.clf()
-            #
-            # ax =
-            #
-            #
-            # print(res)
-
-
-
-    # we have a lot of dimensions to checkout: individual pairs
-    # Extracted from node 0?, node 0 to all other nodes, tdoa values extracted from node
-    # ToF (DS)
-    # ToF (SS)
-    # TDoA (DS)
-    # TDoA (Mixed)
-    # TDoA (SS-init)
-    # TDoA (SS-final)
-    # TDoA (SS-both)
 
 
 if __name__ == '__main__':
@@ -2005,7 +2107,9 @@ if __name__ == '__main__':
         #export_twr_vs_tdoa_scatter,
         #export_loc_sim,
         #export_twr_scatter_dist
-        export_new_twr_variance_based_model
+        #export_new_twr_variance_based_model,
+        #export_new_twr_variance_based_model
+        export_testbed_ds_vs_cfo_comparison
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
