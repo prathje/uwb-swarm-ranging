@@ -1574,10 +1574,9 @@ def get_df(log, tdoa_src_dev_number, use_bias_correction):
 
     return utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
 
-def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_correction, skip_to_round = 0, up_to_round = None):
+def extract_active_and_all_passive_dfs(log, filter_pair, filter_passive_listener, use_bias_correction, skip_to_round=0,
+                                   up_to_round=None):
     active_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
-
-
 
     if filter_passive_listener is not None:
         passive_df = get_df(log, tdoa_src_dev_number=filter_passive_listener,
@@ -1595,12 +1594,27 @@ def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_c
 
     if up_to_round is not None:
         active_df = active_df[active_df['round'] <= up_to_round]
-        passive_df = passive_df[active_df['round'] <= up_to_round]
+        passive_df = passive_df[passive_df['round'] <= up_to_round]
 
     if filter_pair is not None:
         active_df = active_df[active_df['pair'] == filter_pair]
         passive_df = passive_df[passive_df['pair'] == filter_pair]
 
+    if passive_df['tdoa_est_ds'].count() != 0:
+        passive_df['tdoa_est_ds_err'] = passive_df['tdoa_est_ds'] - passive_df['tdoa']
+        passive_df['tdoa_est_ss_init_err'] = passive_df['tdoa_est_ss_init'] - passive_df['tdoa']
+        passive_df['tdoa_est_ss_final_err'] = passive_df['tdoa_est_ss_final'] - passive_df['tdoa']
+        passive_df['tdoa_est_ss_both_err'] = passive_df['tdoa_est_ss_both'] - passive_df['tdoa']
+        passive_df['tdoa_est_mixed_err'] = passive_df['tdoa_est_mixed'] - passive_df['tdoa']
+
+    return active_df, passive_df
+
+
+def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_correction, skip_to_round=0,
+                           up_to_round=None):
+    active_df, passive_df = extract_active_and_all_passive_dfs(log, filter_pair, filter_passive_listener,
+                                                           use_bias_correction, skip_to_round=skip_to_round,
+                                                           up_to_round=up_to_round)
     active_agg = active_df.agg(
         twr_count=pd.NamedAgg(column='twr_tof_ds', aggfunc="count"),
         dist=pd.NamedAgg(column='dist', aggfunc="max"),
@@ -1621,11 +1635,6 @@ def compute_means_and_stds(log, filter_pair, filter_passive_listener, use_bias_c
     #active_agg.to_csv('ds-vs-cfg-pair-{}-passive-{}-active.csv'.format(filter_pair, filter_passive_listener))
 
     if passive_df['tdoa_est_ds'].count() != 0:
-        passive_df['tdoa_est_ds_err'] = passive_df['tdoa_est_ds'] - passive_df['tdoa']
-        passive_df['tdoa_est_ss_init_err'] = passive_df['tdoa_est_ss_init'] - passive_df['tdoa']
-        passive_df['tdoa_est_ss_final_err'] = passive_df['tdoa_est_ss_final'] - passive_df['tdoa']
-        passive_df['tdoa_est_ss_both_err'] = passive_df['tdoa_est_ss_both'] - passive_df['tdoa']
-        passive_df['tdoa_est_mixed_err'] = passive_df['tdoa_est_mixed'] - passive_df['tdoa']
 
         passive_agg = passive_df.agg(
             tdoa_count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
@@ -2067,6 +2076,202 @@ def export_testbed_ds_vs_cfo_comparison(config, export_dir):
     plt.close()
 
 
+def export_rssi_bias_correction_comparison(config, export_dir):
+    # We can skip several rounds here
+    skip_to_round = 0
+    up_to_round = None
+    log = 'job_tdma_long'  # TOOD: export with new data!!!
+
+    use_bias_correction = False
+    corrected_vals = compute_means_and_stds(log, None, None, use_bias_correction=True, skip_to_round=skip_to_round, up_to_round=up_to_round)
+    uncorrected_vals = compute_means_and_stds(log, None, None, use_bias_correction=False, skip_to_round=skip_to_round, up_to_round=up_to_round)
+
+    labels = [
+        "ToF\nDS",
+        "ToF\nSS",
+        "TDoA\nDS",
+        "TDoA\nMixed",
+        #"TDoA\nSS-Both",
+        #"TDoA\nSS-Init",
+        #"TDoA\nSS-Final",
+    ]
+
+    ys = {
+        'Uncorrected': [
+                uncorrected_vals['twr_tof_ds_mae'] * 100.0,
+                uncorrected_vals['twr_tof_ss_mae'] * 100.0,
+                uncorrected_vals['tdoa_est_ds_mae'] * 100.0,
+                uncorrected_vals['tdoa_est_mixed_mae'] * 100.0,
+                #uncorrected_vals['tdoa_est_ss_both_mae'] * 100.0,
+                #uncorrected_vals['tdoa_est_ss_init_mae'] * 100.0,
+                #uncorrected_vals['tdoa_est_ss_final_mae'] * 100.0,
+        ],
+        'Corrected':
+            [
+                corrected_vals['twr_tof_ds_mae'] * 100.0,
+                corrected_vals['twr_tof_ss_mae'] * 100.0,
+                corrected_vals['tdoa_est_ds_mae'] * 100.0,
+                corrected_vals['tdoa_est_mixed_mae'] * 100.0,
+                # corrected_vals['tdoa_est_ss_both_mae'] * 100.0,
+                # corrected_vals['tdoa_est_ss_init_mae'] * 100.0,
+                # corrected_vals['tdoa_est_ss_final_mae'] * 100.0,
+            ],
+    }
+
+    stds = {
+        'Corrected':
+            [
+                corrected_vals['twr_tof_ds_err_std'] * 100.0,
+                corrected_vals['twr_tof_ss_err_std'] * 100.0,
+                corrected_vals['tdoa_est_ds_err_std'] * 100.0,
+                corrected_vals['tdoa_est_mixed_err_std'] * 100.0,
+                #corrected_vals['tdoa_est_ss_both_err_std'] * 100.0,
+                #corrected_vals['tdoa_est_ss_init_err_std'] * 100.0,
+                #corrected_vals['tdoa_est_ss_final_err_std'] * 100.0,
+            ],
+        'Uncorrected': [
+                uncorrected_vals['twr_tof_ds_err_std'] * 100.0,
+                uncorrected_vals['twr_tof_ss_err_std'] * 100.0,
+                uncorrected_vals['tdoa_est_ds_err_std'] * 100.0,
+                uncorrected_vals['tdoa_est_mixed_err_std'] * 100.0,
+                #uncorrected_vals['tdoa_est_ss_both_err_std'] * 100.0,
+                #uncorrected_vals['tdoa_est_ss_init_err_std'] * 100.0,
+                #uncorrected_vals['tdoa_est_ss_final_err_std'] * 100.0,
+        ]
+    }
+
+
+    colors = [
+        'C0',
+        'C0',
+        'C1',
+        'C1',
+        'C1',
+        'C1',
+        'C1'
+    ]
+
+    x = np.arange(len(labels))  # the label locations
+    width = 0.3  # the width of the bars
+    multiplier = 0.5
+
+    plt.clf()
+
+    ax = plt.gca()
+
+    for attribute, measurement in ys.items():
+        offset = width * multiplier
+
+        stds_as_np = np.array(stds[attribute])
+        print(measurement)
+        rects = ax.bar(x + offset, measurement, width, label=attribute, yerr=stds_as_np)
+
+        stds_as_np = np.ravel(stds_as_np, order='C')
+
+        counter = 0
+        for p in rects:
+            height = p.get_height()
+            if np.isnan(height):
+                height = 0
+
+            ax.text(p.get_x() + p.get_width() / 2., height + stds_as_np[counter],
+                    "{:.1f}\n[{:.1f}]".format(height, stds_as_np[counter]), fontsize=9, color='black', ha='center',
+                    va='bottom')
+
+            counter += 1
+        multiplier += 1
+
+    plt.ylim(0.0, 30.0)
+    ax.set_axisbelow(True)
+    ax.set_xticks(x + width, labels )
+    ax.set_xlabel("Measurement Type")
+    ax.set_ylabel("Mean Absolute Error [cm]")
+    ax.legend()
+
+
+
+
+
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/rssi_bias_correction_comparison.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+
+def export_localization_performance(config, export_dir):
+    import sim_experimental_localization
+
+    skip_to_round = 0
+    up_to_round = 10
+    log = 'job_tdma_long'  # TOOD: export with new data!!!
+    use_bias_correction = True
+
+    true_positions = {}
+
+    for k in trento_b.dev_positions:
+        true_positions[k] = np.asarray([trento_b.dev_positions[k][0], trento_b.dev_positions[k][1]])
+
+    anchor_devices = [trento_b.devs[1], trento_b.devs[5], trento_b.devs[8], trento_b.devs[12]]
+    active_devices = [d for d in trento_b.devs if d not in anchor_devices]
+    passive_devices = []
+
+
+
+    active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+                                                               use_bias_correction, skip_to_round=skip_to_round,
+                                                               up_to_round=up_to_round)
+    def proc():
+        tof_meas = {}
+        tdoa_measurements = {}
+
+        for na, dev_a in enumerate(trento_b.devs):
+            for nb, dev_b in enumerate(trento_b.devs):
+                if dev_a != dev_b:
+                    filtered_active_df = active_df[(active_df['pair'] == "{}-{}".format(na, nb))]
+
+                    tof_meas["{}-{}".format(dev_a, dev_b)] = filtered_active_df['twr_tof_ds'].mean()
+
+                    for nc, dev_c in enumerate(trento_b.devs):
+                        if dev_a != dev_c and dev_c != dev_b:
+                            # add passive measurement
+                            filtered_passive_df = passive_df[(passive_df['pair'] == "{}-{}".format(na, nb)) & (passive_df['tdoa_device'] == nc)]
+                            tdoa_measurements["{}-{}-{}".format(dev_a, dev_b, dev_c)] = filtered_passive_df['tdoa_est_ds'].mean()
+        return [tof_meas, tdoa_measurements]
+    string_keyed_tof_meas, string_keyed_tdoa_measurements = cached(('export_localization_performance', log, use_bias_correction, skip_to_round, up_to_round, 3), proc)
+
+    tof_meas = {}
+    tdoa_measurements = {}
+    for k in string_keyed_tof_meas:
+        tof_meas[tuple(k.split("-"))] = string_keyed_tof_meas[k]
+
+    for k in string_keyed_tdoa_measurements:
+        tdoa_measurements[tuple(k.split("-"))] = string_keyed_tdoa_measurements[k]
+
+    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+        true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+        use_cooperative=False, use_tdoa_for_active=False)
+    print("Uncooperative without tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+
+    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+        true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+        use_cooperative=False, use_tdoa_for_active=True)
+    print("Uncooperative with tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+
+    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+        true_positions,anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+        use_cooperative=True, use_tdoa_for_active=False)
+    print("Cooperative without tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+
+    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+        true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+        use_cooperative=True, use_tdoa_for_active=True)
+    print("Cooperative with tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+
+    pass
 
 
 if __name__ == '__main__':
@@ -2109,7 +2314,9 @@ if __name__ == '__main__':
         #export_twr_scatter_dist
         #export_new_twr_variance_based_model,
         #export_new_twr_variance_based_model
-        export_testbed_ds_vs_cfo_comparison
+        #export_testbed_ds_vs_cfo_comparison,
+        #export_rssi_bias_correction_comparison,
+        export_localization_performance,
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
