@@ -2215,7 +2215,7 @@ def export_localization_performance(config, export_dir):
     for k in trento_b.dev_positions:
         true_positions[k] = np.asarray([trento_b.dev_positions[k][0], trento_b.dev_positions[k][1]])
 
-    anchor_devices = [trento_b.devs[1], trento_b.devs[5], trento_b.devs[8], trento_b.devs[12]]
+    anchor_devices = [trento_b.devs[1], trento_b.devs[5], trento_b.devs[8]] #, trento_b.devs[12]]
     active_devices = [d for d in trento_b.devs if d not in anchor_devices]
     passive_devices = []
 
@@ -2263,7 +2263,7 @@ def export_localization_performance(config, export_dir):
 
     active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
         true_positions,anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
-        use_cooperative=True, use_tdoa_for_active=False)
+        use_cooperative=True, use_tdoa_for_active=False, init_noise_std=0.0)
     print("Cooperative without tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
 
     active_errs, passive_errs = sim_experimental_localization.least_squares_loc(

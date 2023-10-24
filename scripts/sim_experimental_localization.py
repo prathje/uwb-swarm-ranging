@@ -49,7 +49,7 @@ def sim_single_tdoa_positioning(p, meas_std):
 
 
 
-def least_squares_loc(true_positions, anchors, active_devices, passive_devices, tof_measurements, tdoa_measurements, use_cooperative=True, use_tdoa_for_active=False):
+def least_squares_loc(true_positions, anchors, active_devices, passive_devices, tof_measurements, tdoa_measurements, use_cooperative=True, use_tdoa_for_active=False,init_noise_std=0.0):
 
     anchor_positions = {}
     for a in anchors:
@@ -129,9 +129,7 @@ def least_squares_loc(true_positions, anchors, active_devices, passive_devices, 
 
         model_meas = np.asarray(model_meas)
 
-        #print(model_meas)
-        #print(actual_measurements)
-        #print(model_meas-actual_measurements)
+        #print((model_meas-actual_measurements).sum())
 
         return model_meas-actual_measurements
 
@@ -139,6 +137,10 @@ def least_squares_loc(true_positions, anchors, active_devices, passive_devices, 
     p_mean = np.asarray(true_anchor_position_list).mean(axis=0)
     p_mean = np.reshape(p_mean, (-1, 2))
     p_initial = np.repeat(p_mean, len(active_devices), axis=0)
+
+    noise = np.random.normal(0, init_noise_std, (len(active_devices), 2))
+    p_initial += noise
+
 
     res = least_squares(err_func, p_initial.flatten())
 
