@@ -2268,20 +2268,13 @@ def export_localization_performance(config, export_dir):
     import sim_experimental_localization
 
     skip_to_round = 0
-    up_to_round = 10
+    up_to_round = None  # we will use all available measurements for now.
     log = 'job_tdma_long'  # TOOD: export with new data!!!
     use_bias_correction = True
 
     true_positions = {}
-
     for k in trento_b.dev_positions:
         true_positions[k] = np.asarray([trento_b.dev_positions[k][0], trento_b.dev_positions[k][1]])
-
-    anchor_devices = [trento_b.devs[1], trento_b.devs[5], trento_b.devs[8]] #, trento_b.devs[12]]
-    active_devices = [d for d in trento_b.devs if d not in anchor_devices]
-    passive_devices = []
-
-
 
     active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
                                                                use_bias_correction, skip_to_round=skip_to_round,
@@ -2313,25 +2306,83 @@ def export_localization_performance(config, export_dir):
     for k in string_keyed_tdoa_measurements:
         tdoa_measurements[tuple(k.split("-"))] = string_keyed_tdoa_measurements[k]
 
-    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
-        true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
-        use_cooperative=False, use_tdoa_for_active=False)
-    print("Uncooperative without tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+    import itertools
 
-    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
-        true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
-        use_cooperative=False, use_tdoa_for_active=True)
-    print("Uncooperative with tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
 
-    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
-        true_positions,anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
-        use_cooperative=True, use_tdoa_for_active=False, init_noise_std=0.0)
-    print("Cooperative without tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+    all_devices = trento_b.devs
+    def gen_random_scenarios(num_anchors, num_active):
 
-    active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
-        true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
-        use_cooperative=True, use_tdoa_for_active=True)
-    print("Cooperative with tdoa", active_errs.mean(),  active_errs.std(), np.sqrt(np.mean((active_errs) ** 2)))
+        # choose different anchors
+        anchor_subsets = itertools.combinations(all_devices, r=num_anchors)
+        for anchors in anchor_subsets:
+            active_subsets = itertools.combinations([d for d in all_devices if d not in anchors], r=num_active)
+
+            for actives in active_subsets:
+                passives = [d for d in all_devices if d not in anchors and d not in actives]
+                yield anchors, actives, passives
+
+    init_noise_std = 5.0
+
+
+    def exec_sims(num_anchors, num_active):
+        g = gen_random_scenarios(num_anchors, num_active)
+
+        for (anchor_devices, active_devices, passive_devices) in g:
+
+            # (anchor_devices, active_devices, passive_devices) = (('dwm1001.160', 'dwm1001.161', 'dwm1001.168'), (
+            # 'dwm1001.162', 'dwm1001.163', 'dwm1001.164', 'dwm1001.165', 'dwm1001.166', 'dwm1001.167', 'dwm1001.169',
+            # 'dwm1001.170', 'dwm1001.171', 'dwm1001.172', 'dwm1001.173'), [])
+
+
+            res = {}
+
+            active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+                true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+                use_cooperative=False, use_tdoa_for_active=False, init_noise_std=init_noise_std)
+
+            res['uncooperative_no_passive_active_rmse'] = np.sqrt(np.mean(active_errs ** 2))
+            res['uncooperative_no_passive_passive_rmse'] = np.sqrt(np.mean(passive_errs ** 2))
+            res['uncooperative_no_passive_all_rmse'] = np.sqrt(np.mean(np.concatenate((active_errs, passive_errs)) ** 2))
+
+            active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+                true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+                use_cooperative=False, use_tdoa_for_active=True, init_noise_std=init_noise_std)
+
+            res['uncooperative_passive_active_rmse'] = np.sqrt(np.mean(active_errs ** 2))
+            res['uncooperative_passive_passive_rmse'] = np.sqrt(np.mean(passive_errs ** 2))
+            res['uncooperative_passive_all_rmse'] =np.sqrt(np.mean(np.concatenate((active_errs, passive_errs)) ** 2))
+
+            active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+                true_positions,anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+                use_cooperative=True, use_tdoa_for_active=False, init_noise_std=init_noise_std)
+
+            res['cooperative_no_passive_active_rmse'] = np.sqrt(np.mean(active_errs ** 2))
+            res['cooperative_no_passive_passive_rmse'] = np.sqrt(np.mean(passive_errs ** 2))
+            res['cooperative_no_passive_all_rmse'] = np.sqrt(np.mean(np.concatenate((active_errs, passive_errs)) ** 2))
+
+            active_errs, passive_errs = sim_experimental_localization.least_squares_loc(
+                true_positions, anchor_devices, active_devices, passive_devices, tof_meas, tdoa_measurements,
+                use_cooperative=True, use_tdoa_for_active=True, init_noise_std=init_noise_std)
+
+            res['cooperative_no_passive_active_rmse'] = np.sqrt(np.mean(active_errs ** 2))
+            res['cooperative_no_passive_passive_rmse'] = np.sqrt(np.mean(passive_errs ** 2))
+            res['cooperative_no_passive_all_rmse'] = np.sqrt(np.mean(np.concatenate((active_errs, passive_errs)) ** 2))
+
+
+            yield res
+
+    def sim_all(limit=None):
+        anchor_nums = [3]
+        for x1 in anchor_nums:
+            for x2 in reversed(range(len(all_devices)-x1+1)):
+                for res in itertools.islice(exec_sims(x1, x2), 0, limit):
+                    res['num_anchors'] = x1
+                    res['num_active'] = x2
+                    res['num_passive'] = len(all_devices)-(x1+x2)
+                    yield res
+
+    for r in sim_all():
+        print(r)
 
     pass
 
@@ -2642,6 +2693,7 @@ if __name__ == '__main__':
         export_measured_mean_std_matrix,
         export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
+        #export_histograms
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
