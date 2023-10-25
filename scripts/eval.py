@@ -1189,7 +1189,6 @@ def export_tdoa_simulation_response_std(config, export_dir):
                     tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
                 )
 
-
                 data_rows.append(
                     {
                         'rdr': x,
@@ -1229,9 +1228,9 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         plt.clf()
         ax = df.plot.line(x='rdr', y=[
-            'ToF SD',
+            'ToF Sample SD',
             #'ToF DS SD',
-            'TDoA SD',
+            'TDoA Sample SD',
             #'TDoA DS SD',
             #'TDoA (w/ DC) SD',
             #'TDoA DS (w/ DC) SD'
@@ -1876,22 +1875,38 @@ def export_new_twr_variance_based_model_using_ss_diff(config, export_dir):
     use_bias_correction = True
     twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
 
-    twr_df = twr_df[twr_df['round'] >= 0]
+    skip_to_round = 50
+    twr_df = twr_df[twr_df['round'] >= skip_to_round]
 
     twr_df['twr_ss_diff'] = twr_df['twr_tof_ss']-twr_df['twr_tof_ss_reverse']
+    twr_df['twr_ss_diff_ds'] = twr_df['twr_tof_ss']-twr_df['twr_tof_ds']
+    twr_df['twr_ss_reverse_diff_ds'] = twr_df['twr_tof_ss_reverse']-twr_df['twr_tof_ds']
 
-    var_df = twr_df.groupby('pair').agg({'twr_ss_diff': 'var'})
-    var_dict = var_df.to_dict()['twr_ss_diff']
+    var_df = twr_df.groupby('pair').agg({'twr_ss_diff': 'var', 'twr_ss_diff_ds': 'var', 'twr_ss_reverse_diff_ds': 'var', 'twr_tof_ds': 'var', 'twr_tof_ss': 'var'})
+    var_dict = var_df.to_dict()
 
+    cfo_noise_corrected_dict = {}
+
+    for pair in var_dict['twr_ss_diff']:
+        ss_cfo_noise_var = var_dict['twr_ss_diff_ds'][pair]
+        ss_reverse_cfo_noise_var = var_dict['twr_ss_reverse_diff_ds'][pair]
+
+        cfo_noise_corrected_dict[pair] = var_dict['twr_ss_diff'][pair]-ss_cfo_noise_var-ss_reverse_cfo_noise_var
+        print(cfo_noise_corrected_dict[pair])
+    exit()
     # The variance we get is 0.5 the one we need
 
     def compute_exp_std(pair, p):
         a, b = pair.split("-")
         a, b = int(a), int(b)
-        return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
-        #return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)])
 
-    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+
+
+
+        #return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
+        return np.sqrt(0.5*var_dict["{}-{}".format(a, b)] + 0.5*var_dict["{}-{}".format(b, a)])
+
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round)
     all_df = all_df[all_df['tdoa_count'].notna()]
 
     from matplotlib import cm
@@ -1901,7 +1916,7 @@ def export_new_twr_variance_based_model_using_ss_diff(config, export_dir):
 
     all_df['expected_std'] = all_df.apply(lambda x: compute_exp_std(x['_filter_pair'], x['_filter_passive_listener']), axis=1)
 
-    compare_axis_y = 'tdoa_est_ss_both_err_std'
+    compare_axis_y = 'twr_tof_ss_err_std'
     compare_axis_x = 'expected_std'
 
     all_df.plot.scatter(compare_axis_y, compare_axis_x, ax=ax)
@@ -1998,6 +2013,8 @@ def export_testbed_ds_vs_cfo_comparison(config, export_dir):
     skip_to_round = 0
     up_to_round = None
     log = 'job_tdma_long' # TOOD: export with new data!!!
+
+    filter_above_std = None
 
     use_bias_correction = False
     vals = compute_means_and_stds(log, None, None, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
@@ -2274,6 +2291,85 @@ def export_localization_performance(config, export_dir):
     pass
 
 
+def export_histograms(config, export_dir):
+    # We can skip several rounds here
+    skip_to_round = 0
+    up_to_round = None
+    log = 'job_tdma_long'  # TOOD: export with new data!!!
+
+    filter_above_std = None
+
+    use_bias_correction = False
+    vals = compute_means_and_stds(log, None, None, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round,
+                                  up_to_round=up_to_round)
+
+    active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+                                                               use_bias_correction, skip_to_round=skip_to_round,
+                                                               up_to_round=up_to_round)
+
+    plt.clf()
+    ax = plt.gca()
+
+    active_std_df = active_df.groupby('pair').agg('std')
+    active_std_df['twr_tof_ds'] *= 100.0
+    #active_std_df['twr_tof_ds_err'] *= 100.0
+    #active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
+    active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
+
+    ax.set_axisbelow(True)
+    ax.set_xlabel("DS-TWR SD [cm]")
+    ax.set_ylabel("Number of Pairs")
+    #ax.legend()
+
+    plt.title('')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/histogram_ds_twr.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+    plt.clf()
+    ax = plt.gca()
+
+    passive_std_df = passive_df.groupby(['pair', 'tdoa_device']).agg('std')
+    passive_std_df['tdoa_est_ds'] *= 100.0
+    #passive_std_df['tdoa_est_ds_err'] *= 100.0
+    #passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
+    passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
+    plt.title('')
+
+    ax.set_axisbelow(True)
+    ax.set_xlabel("DS-TDoA SD [cm]")
+    ax.set_ylabel("Number of Triples")
+    #ax.legend()
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/histogram_ds_tdoa.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.close()
+    plt.clf()
+    ax = plt.gca()
+
+    active_std_df.hist(column='twr_tof_ds', bins=50, ax=ax, label='DS TWR', alpha=0.75)
+    passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax, label='DS TDoA', alpha=0.75)
+
+    ax.set_axisbelow(True)
+    ax.set_xlabel("Sample SD [cm]")
+    ax.set_ylabel("Number of Pairs / Triples")
+    # ax.legend()
+
+    plt.title('')
+
+    plt.gcf().set_size_inches(6.0, 5.5)
+    plt.tight_layout()
+
+    plt.savefig("{}/histogram_ds_active_passive.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+
+
 if __name__ == '__main__':
 
     config = load_env_config()
@@ -2316,7 +2412,9 @@ if __name__ == '__main__':
         #export_new_twr_variance_based_model
         #export_testbed_ds_vs_cfo_comparison,
         #export_rssi_bias_correction_comparison,
-        export_localization_performance,
+        #export_localization_performance,
+        #export_new_twr_variance_based_model_using_ss_diff
+        export_histograms
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
