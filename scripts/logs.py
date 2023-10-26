@@ -435,17 +435,20 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
 
             #df = df[df['slot'] <= 100]
 
+            #df = df.head(10)
+
             # build coefficient matrix
             coeff = np.asarray([[r['tx_ts'], -1] for (i, r) in df.iterrows()])
             ordinate = df['rx_ts'].to_numpy()
 
-            x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate)
-
+            x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
             sample_variance = sum_of_squared_residuals / (len(df.index) - 1)
 
-            print(len(df.index), sample_variance, convert_ts_to_m(np.sqrt(sample_variance)))
+            #print(len(df.index), x, sample_variance, convert_ts_to_m(np.sqrt(sample_variance)))
 
-            return convert_ts_to_m(np.sqrt(sample_variance[0]))
+            #print(df)
+
+            return convert_ts_to_m(np.sqrt(sample_variance))
 
         return None
 
@@ -463,7 +466,7 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
             coeff = np.asarray([[-1] for (i, r) in df.iterrows()])
             ordinate = np.asarray([[r['rx_ts']-r['tx_ts']*mean_rd] for (i, r) in df.iterrows()])
 
-            x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate)
+            x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
 
             sample_variance = sum_of_squared_residuals / (len(df.index) - 1)
 
@@ -477,15 +480,14 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
         rx_df = pd.DataFrame.from_records(rx_events)
         tx_df = pd.DataFrame.from_records(tx_events)
 
-
-        for transmitter in range(len(testbed.devs)):
-            for receiver in [0]:#range(len(testbed.devs)):
+        for transmitter in [7]: #range(len(testbed.devs)): TODO!!
+            for receiver in [0]: #range(len(testbed.devs)):
                 if receiver != transmitter:
                     if len(rx_df.index) > 0 and len(tx_df.index) > 0:
                         pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
                         rx_var_est = estimate_noise_std_with_lls(pairs)
 
-                        e =  {
+                        e = {
                             'round': r,
                             'tx_number': transmitter,
                             'rx_number': receiver,
@@ -763,11 +765,11 @@ if __name__ == '__main__':
     if 'CACHE_DIR' in config and config['CACHE_DIR']:
         init_cache(config['CACHE_DIR'])
 
-    skip_to_round = 50  # 200?
-    up_to_round = 100 # 200?
+    skip_to_round = 10  # 200?
+    up_to_round = None # 200?
     use_bias_correction = True
     tdoa_src_dev_number = 0
-    log = 'exp_rx_noise_10039'
+    log = 'exp_rx_noise_10046'
 
     estimate_rx_noise_using_cfo(trento_b, log, bias_corrected=use_bias_correction, skip_to_round = skip_to_round, up_to_round = up_to_round)
 

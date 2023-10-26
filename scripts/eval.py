@@ -1838,6 +1838,26 @@ def export_new_twr_variance_based_model(config, export_dir):
 
     all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
 
+    all_df = all_df[all_df['tdoa_count'].notna()]
+    def construct_coeff(pair, passive):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        return [var_dict["{}-{}".format(a, b)], var_dict["{}-{}".format(b, a)], var_dict["{}-{}".format(a, passive)], var_dict["{}-{}".format(b, passive)], 1]
+
+
+    coeff = np.asarray([construct_coeff(x['_filter_pair'], x['_filter_passive_listener']) for (i, x) in all_df.iterrows()])
+    ordinate = np.asarray([r['tdoa_est_ds_err_std']*r['tdoa_est_ds_err_std'] for (i, r) in all_df.iterrows()])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+
+    ss_tot = ((all_df['tdoa_est_ds_err_std']-all_df['tdoa_est_ds_err_std'].mean()) * (all_df['tdoa_est_ds_err_std']-all_df['tdoa_est_ds_err_std'].mean())).sum()
+
+    r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
+    print("R2 score", r2)
+    print(x)
+    exit()
+
+
     from matplotlib import cm
     cmap = cm.get_cmap('Spectral')
 
@@ -2514,7 +2534,7 @@ def export_measured_mean_std_matrix(config, export_dir):
                         else:
                             e = round(ma[i, j], 1)
                         s = str(e)
-                        ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+                        ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=False)
 
             ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
             ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
@@ -2530,10 +2550,10 @@ def export_measured_mean_std_matrix(config, export_dir):
 
 def export_measured_rx_noise(config, export_dir):
 
-    skip_to_round = 50  # 200?
+    skip_to_round = 0  # 200? TODO
     up_to_round = 120  # 200?
     use_bias_correction = True
-    log = 'exp_rx_noise_10039'
+    log = 'exp_rx_noise_10046'
 
     for (c, t) in enumerate([trento_b]):
 
@@ -2570,7 +2590,7 @@ def export_measured_rx_noise(config, export_dir):
                     else:
                         e = round(ma[i, j], 1)
                     s = str(e)
-                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=False)
 
         ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
         ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
@@ -2586,10 +2606,10 @@ def export_measured_rx_noise(config, export_dir):
 
 
 def export_predicted_ds_twr(config, export_dir):
-    skip_to_round = 50  # 200?
+    skip_to_round = 0  # 200? TODO
     up_to_round = 120  # 200?
     use_bias_correction = True
-    log = 'exp_rx_noise_10039'
+    log = 'exp_rx_noise_10046'
 
     for (c, t) in enumerate([trento_b]):
 
@@ -2629,7 +2649,7 @@ def export_predicted_ds_twr(config, export_dir):
                     else:
                         e = round(ma[i, j], 1)
                     s = str(e)
-                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=False)
 
         ax.xaxis.set_major_formatter(lambda x, pos: int(x + 1))
         ax.yaxis.set_major_formatter(lambda x, pos: int(x + 1))
@@ -2689,11 +2709,12 @@ if __name__ == '__main__':
         #export_localization_performance,
         #export_new_twr_variance_based_model_using_ss_diff
         #export_histograms,
-        export_predicted_ds_twr,
-        export_measured_mean_std_matrix,
-        export_measured_rx_noise,
+        #export_predicted_ds_twr,
+        #export_measured_mean_std_matrix,
+        #export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
-        #export_histograms
+        #export_histograms,
+        export_new_twr_variance_based_model
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
