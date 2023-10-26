@@ -1827,8 +1827,8 @@ def export_new_twr_variance_based_model(config, export_dir):
     use_bias_correction = True
     twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
 
-    var_df = twr_df.groupby('pair').agg({'twr_tof_ds': 'var'})
-    var_dict = var_df.to_dict()['twr_tof_ds']
+    var_df = twr_df.groupby('pair').agg({'twr_tof_ss': 'var'})
+    var_dict = var_df.to_dict()['twr_tof_ss']
 
     def compute_exp_std(pair, p):
         a, b = pair.split("-")
@@ -1842,15 +1842,16 @@ def export_new_twr_variance_based_model(config, export_dir):
     def construct_coeff(pair, passive):
         a, b = pair.split("-")
         a, b = int(a), int(b)
-        return [var_dict["{}-{}".format(a, b)], var_dict["{}-{}".format(b, a)], var_dict["{}-{}".format(a, passive)], var_dict["{}-{}".format(b, passive)], 1]
+        return [var_dict["{}-{}".format(a, b)], var_dict["{}-{}".format(b, a)], var_dict["{}-{}".format(a, passive)], var_dict["{}-{}".format(b, passive)],1]
 
-
+    k = 'tdoa_est_ss_both_err_std'
     coeff = np.asarray([construct_coeff(x['_filter_pair'], x['_filter_passive_listener']) for (i, x) in all_df.iterrows()])
-    ordinate = np.asarray([r['tdoa_est_ds_err_std']*r['tdoa_est_ds_err_std'] for (i, r) in all_df.iterrows()])
+    ordinate = np.asarray([r[k]*r[k] for (i, r) in all_df.iterrows()])
 
     x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
 
-    ss_tot = ((all_df['tdoa_est_ds_err_std']-all_df['tdoa_est_ds_err_std'].mean()) * (all_df['tdoa_est_ds_err_std']-all_df['tdoa_est_ds_err_std'].mean())).sum()
+    #ss_tot = ((all_df[k]-all_df[k].mean()) * (all_df[k]-all_df[k].mean())).sum()
+    ss_tot = ((all_df[k]*all_df[k]-(all_df[k]*all_df[k]).mean()) * (all_df[k]*all_df[k]-(all_df[k]*all_df[k]).mean())).sum()
 
     r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
     print("R2 score", r2)
