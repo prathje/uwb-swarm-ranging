@@ -5,6 +5,8 @@ import ctypes
 
 from testbed_to_c_vals import create_inference_matrix
 
+DS_OVERFLOW_VAL = 0xFFFFFFFFFF+1
+
 
 def convert_logged_measurement(val):
     if val > 2 ** 62:
@@ -382,9 +384,122 @@ def gen_all_rx_events(testbed, run, skip_to_round=None, until_round=None):
         for rx_event in rx_events:
             yield rx_event
 
+
+def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round = 0, up_to_round = None):
+
+    def extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver):
+        rel_rx = rx_df[(rx_df['own_number'] == receiver) & (rx_df['rx_number'] == transmitter)]
+
+        last_rx_ts = None
+        last_tx_ts = None
+
+        for index, row in rel_rx.iterrows():
+
+            poss_txs = tx_df[(tx_df['own_number'] == transmitter) & (tx_df['tx_round'] == row['rx_round']) & (tx_df['tx_slot'] == row['rx_slot'])]
+
+            if len(poss_txs.index) >= 1:
+                rel_tx = poss_txs.iloc[0]
+            else:
+                continue    # we could not find the relevant transmission!
+
+            rx_ts = row['bias_corrected_rx_ts' if bias_corrected else 'rx_ts']
+            tx_ts = rel_tx['tx_ts']
+
+            # correct for overflowing timestamps
+            if last_rx_ts is None:
+                last_rx_ts = rx_ts
+            elif last_rx_ts > rx_ts:
+                rx_ts += DS_OVERFLOW_VAL
+
+            if last_tx_ts is None:
+                last_tx_ts = tx_ts
+            elif last_tx_ts > tx_ts:
+                tx_ts += DS_OVERFLOW_VAL
+
+            d = {
+                'tx_number': rel_tx['own_number'],
+                'rx_number': row['own_number'],
+                'round': row['rx_round'],
+                'slot': row['rx_slot'],
+                'rx_ts': rx_ts,
+                'tx_ts': tx_ts,
+                'rx_ci': row['ci']
+            }
+
+            yield d
+
+    def estimate_noise_std_with_lls(pairs):
+        df = pd.DataFrame.from_records(pairs)
+        if len(df.index) > 0:
+            # rx_ts = tx_ts * alpha + beta + eps_rx
+
+            #df = df[df['slot'] <= 100]
+
+            # build coefficient matrix
+            coeff = np.asarray([[r['tx_ts'], -1] for (i, r) in df.iterrows()])
+            ordinate = df['rx_ts'].to_numpy()
+
+            x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate)
+
+            sample_variance = sum_of_squared_residuals / (len(df.index) - 1)
+
+            print(len(df.index), sample_variance, convert_ts_to_m(np.sqrt(sample_variance)))
+
+            return convert_ts_to_m(np.sqrt(sample_variance[0]))
+
+        return None
+
+            #print(x[0], mean_rd, x[0]-mean_rd)
+            #print(residuals)
+
+    def estimate_rx_noise_with_cfo_mean(pairs):
+
+        df = pd.DataFrame.from_records(pairs)
+        if len(df.index) > 0:
+            mean_rd = ci_to_rd(df['rx_ci'].mean())
+
+            print(mean_rd)
+
+            coeff = np.asarray([[-1] for (i, r) in df.iterrows()])
+            ordinate = np.asarray([[r['rx_ts']-r['tx_ts']*mean_rd] for (i, r) in df.iterrows()])
+
+            x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate)
+
+            sample_variance = sum_of_squared_residuals / (len(df.index) - 1)
+
+    rows_list = []
+    for (r, rx_events, tx_events) in gen_round_events(testbed, run):
+        if skip_to_round is not None and r < skip_to_round:
+            continue
+        if up_to_round is not None and r > up_to_round:
+            break
+
+        rx_df = pd.DataFrame.from_records(rx_events)
+        tx_df = pd.DataFrame.from_records(tx_events)
+
+
+        for transmitter in range(len(testbed.devs)):
+            for receiver in [0]:#range(len(testbed.devs)):
+                if receiver != transmitter:
+                    if len(rx_df.index) > 0 and len(tx_df.index) > 0:
+                        pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
+                        rx_var_est = estimate_noise_std_with_lls(pairs)
+
+                        e =  {
+                            'round': r,
+                            'tx_number': transmitter,
+                            'rx_number': receiver,
+                            'rx_std_est': rx_var_est
+                        }
+
+                        rows_list.append(
+                           e
+                        )
+
+    df = pd.DataFrame(rows_list)
+    return df
+
 def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True):
-
-
 
 
     def extract_data(rx_df, tx_df, r, a, b, passive):
@@ -648,52 +763,55 @@ if __name__ == '__main__':
     if 'CACHE_DIR' in config and config['CACHE_DIR']:
         init_cache(config['CACHE_DIR'])
 
-    # We can skip several rounds here
-    skip_to_round = 0  # 200?
-    up_to_round = 197  # 200?
+    skip_to_round = 50  # 200?
+    up_to_round = 100 # 200?
     use_bias_correction = True
     tdoa_src_dev_number = 0
-    log = 'job_tdma_long'
+    log = 'exp_rx_noise_10039'
+
+    estimate_rx_noise_using_cfo(trento_b, log, bias_corrected=use_bias_correction, skip_to_round = skip_to_round, up_to_round = up_to_round)
 
 
-    def extract():
-        it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
-                              bias_corrected=use_bias_correction)
-        return pd.DataFrame.from_records(it)
-
-
-    df = cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), extract)
-
-    df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
-
-    df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
-    df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
-    df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
-    df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
-    df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
-    df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
-    df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
-    df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
-
-    gb = df.groupby('pair').agg(
-        count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
-        dist=pd.NamedAgg(column='dist', aggfunc="min"),
-        tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
-        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
-        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
-        twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
-        twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
-        twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
-        twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
-        tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
-        tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
-        tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
-        tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
-        tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
-        tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
-        tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
-        tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
-        tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
-        tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
-    )
-    gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
+    #
+    #
+    # def extract():
+    #     it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
+    #                           bias_corrected=use_bias_correction)
+    #     return pd.DataFrame.from_records(it)
+    #
+    #
+    # df = cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), extract)
+    #
+    # df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
+    #
+    # df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
+    # df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
+    # df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
+    # df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
+    # df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
+    # df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
+    # df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
+    # df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+    #
+    # gb = df.groupby('pair').agg(
+    #     count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
+    #     dist=pd.NamedAgg(column='dist', aggfunc="min"),
+    #     tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
+    #     twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+    #     twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
+    #     twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
+    #     twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
+    #     twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
+    #     twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
+    #     tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
+    #     tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
+    #     tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
+    #     tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
+    #     tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
+    #     tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
+    #     tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
+    #     tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
+    #     tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
+    #     tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
+    # )
+    # gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))

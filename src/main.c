@@ -33,7 +33,25 @@ LOG_MODULE_REGISTER(main);
 //#define SLOT_DUR_UUS 2000000
 //#define TX_BUFFER_DELAY_UUS 500000
 
-#define TEST_RESP_DELAYS 1
+#define EXP_TWR 0
+#define EXP_NOISE 1
+#define EXP_RESP_DELAYS 5
+
+#define CURRENT_EXPERIMENT EXP_TWR
+
+#if CURRENT_EXPERIMENT == EXP_TWR
+    #define SLOTS_PER_EXCHANGE 3
+    #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
+
+#elif CURRENT_EXPERIMENT == EXP_NOISE
+    #define SLOTS_PER_NODE 100
+    #define NUM_SLOTS (NUM_NODES*SLOTS_PER_NODE)
+    // make sure that the history has enough space to hold all of this!!
+#elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
+    #define SLOTS_PER_EXCHANGE 3
+    #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
+#endif
+
 
 #define LOG_SCHEDULING 0
 
@@ -48,7 +66,6 @@ LOG_MODULE_REGISTER(main);
 #define log_out log_out
 #endif
 
-#define FINAL_ESTIMATION_TIMEOUT_MS (ROUND_TIMEOUT_MS*10)
 
 /* ieee802.15.4 device */
 static struct ieee802154_radio_api *radio_api;
@@ -135,34 +152,11 @@ static void sleep_until_dwt_ts(uint64_t wanted_ts) {
 
 K_SEM_DEFINE(round_start_sem, 0, 1);
 
+
+#if CURRENT_EXPERIMENT == EXP_TWR
+
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
-
-    if (!TEST_RESP_DELAYS) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS);
-    } else {
-        r -= 10; // Schedule some dummy rounds in the beginning
-
-        if (r <  0) {
-            return UUS_TO_DWT_TS(SLOT_DUR_UUS);
-        }
-        else {
-            uint64_t reps = 10;
-
-            uint8_t m = slot % 3;
-            uint64_t overall_half_slot_dur = 20;
-            uint64_t half_slot_dur = SLOT_DUR_UUS/2;
-            int64_t first_mult = (r/reps)+2; // we need at least 2 slot dur
-            uint64_t second_mult = MAX(2, (int64_t)overall_half_slot_dur+2-first_mult); // we need at least 2 slot dur at any point
-
-            if (m == 0) {
-                return UUS_TO_DWT_TS(half_slot_dur*first_mult);
-            } else if(m == 1) {
-                return UUS_TO_DWT_TS(half_slot_dur*second_mult);
-            } else {
-                return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
-            }
-        }
-     }
+    return UUS_TO_DWT_TS(SLOT_DUR_UUS);
 }
 
 int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
@@ -185,6 +179,66 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
     return -1;
 }
+
+#elif CURRENT_EXPERIMENT == EXP_NOISE
+
+uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
+    return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+}
+
+int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
+    return slot/SLOTS_PER_NODE;
+}
+
+#elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
+
+uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
+    r -= 10; // Schedule some dummy rounds in the beginning
+
+    if (r <  0) {
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS);
+    }
+    else {
+        uint64_t reps = 10;
+
+        uint8_t m = slot % 3;
+        uint64_t overall_half_slot_dur = 20;
+        uint64_t half_slot_dur = SLOT_DUR_UUS/2;
+        int64_t first_mult = (r/reps)+2; // we need at least 2 slot dur
+        uint64_t second_mult = MAX(2, (int64_t)overall_half_slot_dur+2-first_mult); // we need at least 2 slot dur at any point
+
+        if (m == 0) {
+            return UUS_TO_DWT_TS(half_slot_dur*first_mult);
+        } else if(m == 1) {
+            return UUS_TO_DWT_TS(half_slot_dur*second_mult);
+        } else {
+            return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
+        }
+    }
+}
+
+int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
+
+    uint16_t exchange = slot / 3;
+    uint8_t m = slot % 3;
+
+    uint16_t init = exchange / (NUM_NODES - 1);
+    uint16_t resp = exchange % (NUM_NODES - 1);
+
+    if(init <= resp) {
+        resp = (resp+1) % NUM_NODES; // we do not want to execute a ranging with ourselves..., actually modulo should not be necessary here anyway?
+    }
+
+    if (m == 0 || m == 2) {
+        return init;
+    } else if(m == 1) {
+        return resp;
+    }
+
+    return -1;
+}
+
+#endif
 
 
 int main(void) {
@@ -340,7 +394,6 @@ int main(void) {
                 msg_tx_buf.round = cur_round;
                 msg_tx_buf.slot = next_slot;
 
-
                 // all other entries are updated in the rx event!
                 net_pkt_write(pkt, &msg_tx_buf, sizeof(msg_tx_buf));
 
@@ -393,6 +446,9 @@ int main(void) {
             next_slot_tx_ts = (next_slot_tx_ts + next_slot_dur_ts) & DWT_TS_MASK;
             next_slot++;
         }
+
+        // we sleep here to the end of the last slot, so that we do not receive a message that overrides anything, especially not our round_started sem!!
+        sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts) & DWT_TS_MASK);
 
         if (LOG_SCHEDULING) {
             char buf[512];

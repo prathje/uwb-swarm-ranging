@@ -9,7 +9,7 @@
 #include "history.h"
 #include "log.h"
 
-#define HISTORY_LENGTH 1024
+#define HISTORY_LENGTH 1440
 
 K_SEM_DEFINE(hist_buf_sem, 1, 1);
 

@@ -1837,7 +1837,6 @@ def export_new_twr_variance_based_model(config, export_dir):
 
 
     all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
-    all_df = all_df[all_df['tdoa_count'].notna()]
 
     from matplotlib import cm
     cmap = cm.get_cmap('Spectral')
@@ -1938,7 +1937,6 @@ def export_new_twr_variance_based_model_using_ss_diff(config, export_dir):
     plt.show()
 
     print(all_df)
-    exit()
 
 
 def export_new_twr_variance_based_model_using_ds_diff(config, export_dir):
@@ -1987,6 +1985,56 @@ def export_new_twr_variance_based_model_using_ds_diff(config, export_dir):
     plt.show()
 
     print(all_df)
+
+def export_new_twr_variance_based_model_with_cfo_extraction(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    twr_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=use_bias_correction)
+
+
+
+    var_df = twr_df.groupby('pair').agg({'twr_tof_ds': 'var'})
+    var_dict = var_df.to_dict()['twr_tof_ds']
+
+    def compute_exp_std(pair, p):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        return np.sqrt(var_dict["{}-{}".format(b, a)] + 2 * var_dict["{}-{}".format(a, p)] + 2 * var_dict[
+            "{}-{}".format(b, p)])
+
+    all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
+    all_df = all_df[all_df['tdoa_count'].notna()]
+
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+
+    fig, ax = plt.subplots()
+
+    all_df['expected_std'] = all_df.apply(
+        lambda x: compute_exp_std(x['_filter_pair'], x['_filter_passive_listener']), axis=1)
+    all_df.plot.scatter('tdoa_est_ds_err_std', 'expected_std', ax=ax)
+
+    for k, v in all_df.iterrows():
+        ax.annotate("{}".format(v['_filter_pair']), (v['tdoa_est_ds_err_std'], v['expected_std']), xytext=(5, -5),
+                    textcoords='offset points', family='sans-serif', fontsize=6, color='black')
+
+    plt.axline((0, 0), slope=1.0)
+
+    all_df['ss_res'] = (all_df['tdoa_est_ds_err_std'] - all_df['expected_std']) * (
+                all_df['tdoa_est_ds_err_std'] - all_df['expected_std'])
+    all_df['ss_tot'] = (all_df['tdoa_est_ds_err_std'] - all_df['tdoa_est_ds_err_std'].mean()) * (
+                all_df['tdoa_est_ds_err_std'] - all_df['tdoa_est_ds_err_std'].mean())
+
+    r2 = 1 - all_df['ss_res'].sum() / all_df['ss_tot'].sum()
+    print("R2 score", r2)
+
+    rmse = ((all_df['expected_std'] - all_df['tdoa_est_ds_err_std']) ** 2).mean() ** .5
+    print("rmse", rmse)
+
+    plt.show()
+
+    print(all_df)
     exit()
 
 def export_twr_scatter_dist(config, export_dir):
@@ -2002,7 +2050,6 @@ def export_twr_scatter_dist(config, export_dir):
     for k, v in all_df.iterrows():
         ax.annotate(v['pair'], (v['twr_tof_ds_err'], v['dist']),  xytext=(5, -5), textcoords='offset points', family='sans-serif', fontsize=6, color='black')
     plt.show()
-    exit()
 
 
 
@@ -2208,8 +2255,6 @@ def export_rssi_bias_correction_comparison(config, export_dir):
 
 
 
-
-
     plt.grid(color='lightgray', linestyle='dashed')
 
     plt.gcf().set_size_inches(6.0, 5.5)
@@ -2299,75 +2344,253 @@ def export_histograms(config, export_dir):
 
     filter_above_std = None
 
-    use_bias_correction = False
-    vals = compute_means_and_stds(log, None, None, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round,
-                                  up_to_round=up_to_round)
+    for use_bias_correction in [True, False]:
+        vals = compute_means_and_stds(log, None, None, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round,
+                                      up_to_round=up_to_round)
 
-    active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
-                                                               use_bias_correction, skip_to_round=skip_to_round,
-                                                               up_to_round=up_to_round)
+        active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+                                                                   use_bias_correction, skip_to_round=skip_to_round,
+                                                                   up_to_round=up_to_round)
 
-    plt.clf()
-    ax = plt.gca()
+        plt.clf()
+        ax = plt.gca()
 
-    active_std_df = active_df.groupby('pair').agg('std')
-    active_std_df['twr_tof_ds'] *= 100.0
-    #active_std_df['twr_tof_ds_err'] *= 100.0
-    #active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
-    active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
+        active_std_df = active_df.groupby('pair').agg('std')
+        active_std_df['twr_tof_ds'] *= 100.0
+        #active_std_df['twr_tof_ds_err'] *= 100.0
+        #active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
+        active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
 
-    ax.set_axisbelow(True)
-    ax.set_xlabel("DS-TWR SD [cm]")
-    ax.set_ylabel("Number of Pairs")
-    #ax.legend()
+        ax.set_axisbelow(True)
+        ax.set_xlabel("DS-TWR SD [cm]")
+        ax.set_ylabel("Number of Pairs")
+        #ax.legend()
 
-    plt.title('')
+        plt.title('')
 
-    plt.gcf().set_size_inches(6.0, 5.5)
-    plt.tight_layout()
+        plt.gcf().set_size_inches(6.0, 5.5)
+        plt.tight_layout()
 
-    plt.savefig("{}/histogram_ds_twr.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
-    plt.close()
+        plt.savefig("{}/histogram_ds_twr_bias_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.close()
 
-    plt.clf()
-    ax = plt.gca()
+        plt.clf()
+        ax = plt.gca()
 
-    passive_std_df = passive_df.groupby(['pair', 'tdoa_device']).agg('std')
-    passive_std_df['tdoa_est_ds'] *= 100.0
-    #passive_std_df['tdoa_est_ds_err'] *= 100.0
-    #passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
-    passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
-    plt.title('')
+        passive_std_df = passive_df.groupby(['pair', 'tdoa_device']).agg('std')
+        passive_std_df['tdoa_est_ds'] *= 100.0
+        #passive_std_df['tdoa_est_ds_err'] *= 100.0
+        #passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
+        passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
+        plt.title('')
 
-    ax.set_axisbelow(True)
-    ax.set_xlabel("DS-TDoA SD [cm]")
-    ax.set_ylabel("Number of Triples")
-    #ax.legend()
+        ax.set_axisbelow(True)
+        ax.set_xlabel("DS-TDoA SD [cm]")
+        ax.set_ylabel("Number of Triples")
+        #ax.legend()
 
-    plt.gcf().set_size_inches(6.0, 5.5)
-    plt.tight_layout()
+        plt.gcf().set_size_inches(6.0, 5.5)
+        plt.tight_layout()
 
-    plt.savefig("{}/histogram_ds_tdoa.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
-    plt.close()
-    plt.clf()
-    ax = plt.gca()
+        plt.savefig("{}/histogram_ds_tdoa_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.close()
+        plt.clf()
+        ax = plt.gca()
 
-    active_std_df.hist(column='twr_tof_ds', bins=50, ax=ax, label='DS TWR', alpha=0.75)
-    passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax, label='DS TDoA', alpha=0.75)
+        active_std_df.hist(column='twr_tof_ds', bins=50, ax=ax, label='DS TWR', alpha=0.75)
+        passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax, label='DS TDoA', alpha=0.75)
 
-    ax.set_axisbelow(True)
-    ax.set_xlabel("Sample SD [cm]")
-    ax.set_ylabel("Number of Pairs / Triples")
-    # ax.legend()
+        ax.set_axisbelow(True)
+        ax.set_xlabel("Sample SD [cm]")
+        ax.set_ylabel("Number of Pairs / Triples")
+        # ax.legend()
 
-    plt.title('')
+        plt.title('')
 
-    plt.gcf().set_size_inches(6.0, 5.5)
-    plt.tight_layout()
+        plt.gcf().set_size_inches(6.0, 5.5)
+        plt.tight_layout()
 
-    plt.savefig("{}/histogram_ds_active_passive.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
-    plt.close()
+        plt.savefig("{}/histogram_ds_active_passive_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.close()
 
+
+def get_cached_rx_noise(testbed, run, bias_corrected=True, skip_to_round = 0, up_to_round = None):
+    def proc():
+        return logs.estimate_rx_noise_using_cfo(testbed, run, bias_corrected=bias_corrected, skip_to_round=skip_to_round, up_to_round=up_to_round)
+    return utility.cached_dt(('get_cached_rx_noise', testbed, run, bias_corrected, skip_to_round, up_to_round), proc)
+
+
+def export_measured_mean_std_matrix(config, export_dir):
+
+    skip_to_round = 50  # 200?
+    use_bias_correction = True
+    log = 'job_tdma_long'
+
+    for metric in ['twr_tof_ds_err_std', 'twr_tof_ds_err_mean']: #, 'twr_tof_ss_err_std', 'twr_tof_ss_err_mean']:
+
+        for (c, t) in enumerate([trento_b]):
+
+            all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round)
+
+            ma = np.zeros((len(t.devs), len(t.devs)))
+
+            for a in range(len(t.devs)):
+                for b in range(len(t.devs)):
+                    if b != a:
+
+                        xs = all_df[(all_df['_filter_pair'] == "{}-{}".format(a,b))][metric]
+
+                        std = xs.median()
+
+                        if std is not None:
+                            s = std * 100
+                        else:
+                            s = np.nan
+                        ma[a, b] = s
+
+            print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+            plt.clf()
+            fig, ax = plt.subplots(figsize=(7.5, 7.5))
+            ax.matshow(ma)
+
+            for i in range(ma.shape[0]):
+                for j in range(ma.shape[1]):
+                    if i != j:
+                        e = ma[i, j]
+                        if e > 100:
+                            e = int(ma[i, j])
+                        else:
+                            e = round(ma[i, j], 1)
+                        s = str(e)
+                        ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+            ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+            ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+            fig.set_size_inches(6.0, 6.0)
+            plt.tight_layout()
+
+            ax.set_xlabel('RX Device')
+            ax.set_ylabel('TX Device')
+
+            plt.savefig("{}/{}_{}.pdf".format(export_dir, metric, t.name), bbox_inches='tight', pad_inches=0)
+
+            plt.close()
+
+def export_measured_rx_noise(config, export_dir):
+
+    skip_to_round = 50  # 200?
+    up_to_round = 120  # 200?
+    use_bias_correction = True
+    log = 'exp_rx_noise_10039'
+
+    for (c, t) in enumerate([trento_b]):
+
+        est_df = get_cached_rx_noise(t, log, bias_corrected=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
+
+        ma = np.zeros((len(t.devs), len(t.devs)))
+
+        for a in range(len(t.devs)):
+            for b in range(len(t.devs)):
+                if b != a:
+
+                    xs = est_df[(est_df['tx_number'] == a) & (est_df['rx_number'] == b)]['rx_std_est']
+
+                    std = xs.median()
+
+                    if std is not None:
+                        s = std * 100
+                    else:
+                        s = np.nan
+                    ma[a, b] = s
+
+        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma)
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+                    s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
+        fig.set_size_inches(6.0, 6.0)
+        plt.tight_layout()
+
+        ax.set_xlabel('RX Device')
+        ax.set_ylabel('TX Device')
+
+        plt.savefig("{}/rx_noise_variance_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
+
+
+def export_predicted_ds_twr(config, export_dir):
+    skip_to_round = 50  # 200?
+    up_to_round = 120  # 200?
+    use_bias_correction = True
+    log = 'exp_rx_noise_10039'
+
+    for (c, t) in enumerate([trento_b]):
+
+        est_df = get_cached_rx_noise(t, log, bias_corrected=use_bias_correction, skip_to_round=skip_to_round,
+                                     up_to_round=up_to_round)
+
+        ma = np.zeros((len(t.devs), len(t.devs)))
+
+        for a in range(len(t.devs)):
+            for b in range(len(t.devs)):
+                if b != a:
+
+                    noise_rxb = est_df[(est_df['tx_number'] == a) & (est_df['rx_number'] == b)]['rx_std_est'].median()
+                    noise_rxa = est_df[(est_df['tx_number'] == a) & (est_df['rx_number'] == b)]['rx_std_est'].median()
+
+                    std = np.sqrt(0.25*noise_rxb*noise_rxb+0.25*noise_rxa*noise_rxa)
+
+                    if std is not None:
+                        s = std * 100
+                    else:
+                        s = np.nan
+                    ma[a, b] = s
+
+        print(t.name, "mean std", ma.mean(), "median", np.median(ma), "max", np.max(ma), "90% quantile",
+              np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+
+        plt.clf()
+        fig, ax = plt.subplots(figsize=(7.5, 7.5))
+        ax.matshow(ma)
+
+        for i in range(ma.shape[0]):
+            for j in range(ma.shape[1]):
+                if i != j:
+                    e = ma[i, j]
+                    if e > 100:
+                        e = int(ma[i, j])
+                    else:
+                        e = round(ma[i, j], 1)
+                    s = str(e)
+                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=True)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: int(x + 1))
+        ax.yaxis.set_major_formatter(lambda x, pos: int(x + 1))
+        fig.set_size_inches(6.0, 6.0)
+        plt.tight_layout()
+
+        ax.set_xlabel('Responder')
+        ax.set_ylabel('Initiator')
+
+        plt.savefig("{}/predicted_ds_twr_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
+
+        plt.close()
 
 
 if __name__ == '__main__':
@@ -2414,7 +2637,11 @@ if __name__ == '__main__':
         #export_rssi_bias_correction_comparison,
         #export_localization_performance,
         #export_new_twr_variance_based_model_using_ss_diff
-        export_histograms
+        #export_histograms,
+        export_predicted_ds_twr,
+        export_measured_mean_std_matrix,
+        export_measured_rx_noise,
+        #export_new_twr_variance_based_model_with_cfo_extractions
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
