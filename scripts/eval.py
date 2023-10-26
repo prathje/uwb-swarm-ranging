@@ -1835,16 +1835,32 @@ def export_new_twr_variance_based_model(config, export_dir):
         a, b = int(a), int(b)
         return np.sqrt(var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
 
+    rx_noise_df = get_cached_rx_noise(trento_b, 'exp_rx_noise_10039', bias_corrected=True, skip_to_round=50,
+                                 up_to_round=120)
+
+    cleaned_rx_noise_df = rx_noise_df[rx_noise_df['rx_number'] != 0]
+
+    rx_var_dict = {}
+    for index, row in cleaned_rx_noise_df.iterrows():
+        rx_var_dict[(row['tx_number'], row['rx_number'])] = (row['rx_std_est']*row['rx_std_est'])
+
 
     all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
 
     all_df = all_df[all_df['tdoa_count'].notna()]
-    def construct_coeff(pair, passive):
+
+    # CLEANUP
+    all_df = all_df[all_df['_filter_passive_listener'] != 0]
+    for b in range(len(trento_b.devs)):
+        all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(0, b)]
+        all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(b, 0)]
+
+    def construct_coeff(pair, p):
         a, b = pair.split("-")
         a, b = int(a), int(b)
-        return [var_dict["{}-{}".format(a, b)], var_dict["{}-{}".format(b, a)], var_dict["{}-{}".format(a, passive)], var_dict["{}-{}".format(b, passive)],1]
+        return [rx_var_dict[(a, b)], rx_var_dict[(b, a)], rx_var_dict[(a, p)], rx_var_dict[(b, p)], 1]
 
-    k = 'tdoa_est_ss_both_err_std'
+    k = 'tdoa_est_ds_err_std'
     coeff = np.asarray([construct_coeff(x['_filter_pair'], x['_filter_passive_listener']) for (i, x) in all_df.iterrows()])
     ordinate = np.asarray([r[k]*r[k] for (i, r) in all_df.iterrows()])
 
@@ -2489,7 +2505,7 @@ def export_histograms(config, export_dir):
 def get_cached_rx_noise(testbed, run, bias_corrected=True, skip_to_round = 0, up_to_round = None):
     def proc():
         return logs.estimate_rx_noise_using_cfo(testbed, run, bias_corrected=bias_corrected, skip_to_round=skip_to_round, up_to_round=up_to_round)
-    return utility.cached_dt(('get_cached_rx_noise', testbed, run, bias_corrected, skip_to_round, up_to_round), proc)
+    return utility.cached_dt(('get_cached_rx_noise', testbed.name, run, bias_corrected, skip_to_round, up_to_round), proc)
 
 
 def export_measured_mean_std_matrix(config, export_dir):
@@ -2554,7 +2570,7 @@ def export_measured_rx_noise(config, export_dir):
     skip_to_round = 0  # 200? TODO
     up_to_round = 120  # 200?
     use_bias_correction = True
-    log = 'exp_rx_noise_10046'
+    log = 'exp_rx_noise_10039'
 
     for (c, t) in enumerate([trento_b]):
 
@@ -2712,10 +2728,10 @@ if __name__ == '__main__':
         #export_histograms,
         #export_predicted_ds_twr,
         #export_measured_mean_std_matrix,
-        #export_measured_rx_noise,
+        export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
         #export_histograms,
-        export_new_twr_variance_based_model
+        #export_new_twr_variance_based_model
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
