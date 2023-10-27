@@ -1821,7 +1821,7 @@ def export_twr_vs_tdoa_scatter(config, export_dir):
     exit()
 
 
-def export_new_twr_variance_based_model(config, export_dir):
+def export_new_twr_variance_based_model_for_tdoa(config, export_dir):
     log = 'job_tdma_long'
 
     use_bias_correction = True
@@ -1836,31 +1836,32 @@ def export_new_twr_variance_based_model(config, export_dir):
         return np.sqrt(var_dict["{}-{}".format(b, a)] + 2*var_dict["{}-{}".format(a, p)] + 2*var_dict["{}-{}".format(b, p)])
 
     rx_noise_df = get_cached_rx_noise(trento_b, 'exp_rx_noise_10039', bias_corrected=True, skip_to_round=50,
-                                 up_to_round=120)
-
-    cleaned_rx_noise_df = rx_noise_df[rx_noise_df['rx_number'] != 0]
+                                 up_to_round=None)
 
     rx_var_dict = {}
-    for index, row in cleaned_rx_noise_df.iterrows():
-        rx_var_dict[(row['tx_number'], row['rx_number'])] = (row['rx_std_est']*row['rx_std_est'])
+    for tx in range(len(trento_b.devs)):
+        for rx in range(len(trento_b.devs)):
+            if tx != rx:
+                m_rx_std = rx_noise_df[(rx_noise_df['tx_number'] == tx) & (rx_noise_df['rx_number'] == rx)]['rx_std_est'].median()
+                rx_var_dict[(tx, rx)] = (m_rx_std * m_rx_std)
 
 
     all_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=0)
-
     all_df = all_df[all_df['tdoa_count'].notna()]
 
     # CLEANUP
-    all_df = all_df[all_df['_filter_passive_listener'] != 0]
-    for b in range(len(trento_b.devs)):
-        all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(0, b)]
-        all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(b, 0)]
+    #all_df = all_df[all_df['_filter_passive_listener'] != 0]
+    #for b in range(len(trento_b.devs)):
+    #    all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(0, b)]
+    #    all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(b, 0)]
 
     def construct_coeff(pair, p):
         a, b = pair.split("-")
         a, b = int(a), int(b)
         return [rx_var_dict[(a, b)], rx_var_dict[(b, a)], rx_var_dict[(a, p)], rx_var_dict[(b, p)], 1]
 
-    k = 'tdoa_est_ds_err_std'
+
+    k = 'tdoa_est_ss_both_err_std'
     coeff = np.asarray([construct_coeff(x['_filter_pair'], x['_filter_passive_listener']) for (i, x) in all_df.iterrows()])
     ordinate = np.asarray([r[k]*r[k] for (i, r) in all_df.iterrows()])
 
@@ -1903,6 +1904,53 @@ def export_new_twr_variance_based_model(config, export_dir):
 
     print(all_df)
     exit()
+
+
+def export_new_twr_variance_based_model_for_tof(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    skip_to_round=50
+
+    rx_noise_df = get_cached_rx_noise(trento_b, 'exp_rx_noise_10039', bias_corrected=True, skip_to_round=skip_to_round)
+
+    twr_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round)
+
+    rx_var_dict = {}
+    for tx in range(len(trento_b.devs)):
+        for rx in range(len(trento_b.devs)):
+            if tx != rx:
+                m_rx_std = rx_noise_df[(rx_noise_df['tx_number'] == tx) & (rx_noise_df['rx_number'] == rx)]['rx_std_est'].median()
+                rx_var_dict[(tx, rx)] = (m_rx_std * m_rx_std)
+
+    # CLEANUP
+    #all_df = all_df[all_df['_filter_passive_listener'] != 0]
+    #for b in range(len(trento_b.devs)):
+    #    all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(0, b)]
+    #    all_df = all_df[all_df['_filter_pair'] != "{}-{}".format(b, 0)]
+
+    def construct_coeff(pair):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        return [rx_var_dict[(a, b)], rx_var_dict[(b, a)], 1]
+
+
+
+    k = 'twr_tof_ss_err_std'
+    coeff = np.asarray([construct_coeff(x['_filter_pair']) for (i, x) in twr_df.iterrows()])
+    ordinate = np.asarray([r[k]*r[k] for (i, r) in twr_df.iterrows()])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+
+    #ss_tot = ((all_df[k]-all_df[k].mean()) * (all_df[k]-all_df[k].mean())).sum()
+    ss_tot = ((twr_df[k]*twr_df[k]-(twr_df[k]*twr_df[k]).mean()) * (twr_df[k]*twr_df[k]-(twr_df[k]*twr_df[k]).mean())).sum()
+
+    r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
+    print("R2 score", r2)
+    print(x)
+    exit()
+
+
 
 
 def export_new_twr_variance_based_model_using_ss_diff(config, export_dir):
@@ -2424,7 +2472,7 @@ def export_localization_performance(config, export_dir):
     pass
 
 
-def export_histograms(config, export_dir):
+def export_histogram_std(config, export_dir):
     # We can skip several rounds here
     skip_to_round = 0
     up_to_round = None
@@ -2498,7 +2546,85 @@ def export_histograms(config, export_dir):
         plt.gcf().set_size_inches(6.0, 5.5)
         plt.tight_layout()
 
-        plt.savefig("{}/histogram_ds_active_passive_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.savefig("{}/std_histogram_ds_active_passive_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.close()
+
+
+def export_histogram_mean(config, export_dir):
+    # We can skip several rounds here
+    skip_to_round = 0
+    up_to_round = None
+    log = 'job_tdma_long'  # TOOD: export with new data!!!
+
+    filter_above_std = None
+
+    for use_bias_correction in [True, False]:
+        vals = compute_means_and_stds(log, None, None, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round,
+                                      up_to_round=up_to_round)
+
+        active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+                                                                   use_bias_correction, skip_to_round=skip_to_round,
+                                                                   up_to_round=up_to_round)
+
+        plt.clf()
+        ax = plt.gca()
+
+        active_std_df = active_df.groupby('pair').agg('mean')
+        active_std_df['twr_tof_ds_err'] *= 100.0
+        #active_std_df['twr_tof_ds_err'] *= 100.0
+        #active_std_df.hist(column='twr_tof_ds', bins=100, ax=ax)
+        active_std_df.hist(column='twr_tof_ds_err', bins=100, ax=ax)
+
+        ax.set_axisbelow(True)
+        ax.set_xlabel("DS-TWR SD [cm]")
+        ax.set_ylabel("Number of Pairs")
+        #ax.legend()
+
+        plt.title('')
+
+        plt.gcf().set_size_inches(6.0, 5.5)
+        plt.tight_layout()
+
+        plt.savefig("{}/histogram_ds_twr_bias_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.close()
+
+        plt.clf()
+        ax = plt.gca()
+
+        passive_std_df = passive_df.groupby(['pair', 'tdoa_device']).agg('mean')
+        passive_std_df['tdoa_est_ds_err'] *= 100.0
+        #passive_std_df['tdoa_est_ds_err'] *= 100.0
+        #passive_std_df.hist(column='tdoa_est_ds', bins=100, ax=ax)
+        passive_std_df.hist(column='tdoa_est_ds_err', bins=100, ax=ax)
+        plt.title('')
+
+        ax.set_axisbelow(True)
+        ax.set_xlabel("DS-TDoA SD [cm]")
+        ax.set_ylabel("Number of Triples")
+        #ax.legend()
+
+        plt.gcf().set_size_inches(6.0, 5.5)
+        plt.tight_layout()
+
+        plt.savefig("{}/histogram_ds_tdoa_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
+        plt.close()
+        plt.clf()
+        ax = plt.gca()
+
+        active_std_df.hist(column='twr_tof_ds_err', bins=50, ax=ax, label='DS TWR', alpha=0.75)
+        passive_std_df.hist(column='tdoa_est_ds_err', bins=100, ax=ax, label='DS TDoA', alpha=0.75)
+
+        ax.set_axisbelow(True)
+        ax.set_xlabel("Sample SD [cm]")
+        ax.set_ylabel("Number of Pairs / Triples")
+        # ax.legend()
+
+        plt.title('')
+
+        plt.gcf().set_size_inches(6.0, 5.5)
+        plt.tight_layout()
+
+        plt.savefig("{}/mean_histogram_ds_active_passive_{}.pdf".format(export_dir, use_bias_correction), bbox_inches='tight', pad_inches=0)
         plt.close()
 
 
@@ -2567,10 +2693,10 @@ def export_measured_mean_std_matrix(config, export_dir):
 
 def export_measured_rx_noise(config, export_dir):
 
-    skip_to_round = 0  # 200? TODO
-    up_to_round = 120  # 200?
+    skip_to_round = 50
+    up_to_round = None
     use_bias_correction = True
-    log = 'exp_rx_noise_10039'
+    log = 'exp_rx_noise_10041'
 
     for (c, t) in enumerate([trento_b]):
 
@@ -2592,7 +2718,7 @@ def export_measured_rx_noise(config, export_dir):
                         s = np.nan
                     ma[a, b] = s
 
-        print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
+        print(t.name, "mean std", ma.mean(), "median", np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
         fig, ax = plt.subplots(figsize=(7.5, 7.5))
@@ -2728,10 +2854,11 @@ if __name__ == '__main__':
         #export_histograms,
         #export_predicted_ds_twr,
         #export_measured_mean_std_matrix,
-        export_measured_rx_noise,
+        #export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
         #export_histograms,
-        #export_new_twr_variance_based_model
+        export_histogram_mean,
+        #export_new_twr_variance_based_model_for_tof
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):

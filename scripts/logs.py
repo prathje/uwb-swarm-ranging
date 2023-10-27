@@ -434,7 +434,6 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
             # rx_ts = tx_ts * alpha + beta + eps_rx
 
             #df = df[df['slot'] <= 100]
-
             #df = df.head(10)
 
             # build coefficient matrix
@@ -444,7 +443,45 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
             x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
             sample_variance = sum_of_squared_residuals / (len(df.index) - 1)
 
-            #print(len(df.index), x, sample_variance, convert_ts_to_m(np.sqrt(sample_variance)))
+            mean_rd = ci_to_rd(df['rx_ci'].median())
+            print("CFO vs estimate", x, mean_rd)
+            print(len(df.index), x, sample_variance, convert_ts_to_m(np.sqrt(sample_variance)))
+
+            #print(df)
+
+            return convert_ts_to_m(np.sqrt(sample_variance[0]))
+
+        return None
+
+
+    import math
+    def estimate_noise_std_with_lls_grouped(pairs, group_size=5):
+        df = pd.DataFrame.from_records(pairs)
+        if len(df.index) > 0:
+
+            # we build the respectice matrices
+            coeff = np.asarray([[r['tx_ts'], -1] for (i, r) in df.iterrows()])
+            ordinate = df['rx_ts'].to_numpy()
+
+            num_groups = math.ceil(len(df.index)/group_size)
+
+            group_coeff_list = np.array_split(coeff, num_groups)
+            ordinate_list = np.array_split(ordinate, num_groups)
+
+            overall_sum_of_squared_residuals = 0.0
+            overall_num = 0
+
+            for g_coeff, g_ord in zip(group_coeff_list, ordinate_list):
+                if len(g_coeff) >= 4:
+                    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(g_coeff, g_ord, rcond=-1)
+                    group_sample_variance = sum_of_squared_residuals / (len(g_coeff) - 1)
+
+                    overall_sum_of_squared_residuals += sum_of_squared_residuals[0]
+                    overall_num += len(g_coeff)
+
+            sample_variance = overall_sum_of_squared_residuals / (overall_num - 1)
+
+            #print(len(df.index), convert_ts_to_m(np.sqrt(sample_variance)))
 
             #print(df)
 
@@ -452,23 +489,25 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
 
         return None
 
-            #print(x[0], mean_rd, x[0]-mean_rd)
-            #print(residuals)
-
-    def estimate_rx_noise_with_cfo_mean(pairs):
+    def estimate_noise_std_with_cfo_mean(pairs):
 
         df = pd.DataFrame.from_records(pairs)
         if len(df.index) > 0:
-            mean_rd = ci_to_rd(df['rx_ci'].mean())
-
-            print(mean_rd)
+            df = df.head(5)
+            mean_rd = ci_to_rd(df['rx_ci'].median())
 
             coeff = np.asarray([[-1] for (i, r) in df.iterrows()])
-            ordinate = np.asarray([[r['rx_ts']-r['tx_ts']*mean_rd] for (i, r) in df.iterrows()])
+            ordinate = np.asarray([[r['tx_ts']*mean_rd-r['rx_ts']] for (i, r) in df.iterrows()])
 
             x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
 
             sample_variance = sum_of_squared_residuals / (len(df.index) - 1)
+
+            sample_std = convert_ts_to_m(np.sqrt(sample_variance[0]))
+
+            print(sample_std)
+            return sample_std
+        return None
 
     rows_list = []
     for (r, rx_events, tx_events) in gen_round_events(testbed, run):
@@ -480,12 +519,15 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
         rx_df = pd.DataFrame.from_records(rx_events)
         tx_df = pd.DataFrame.from_records(tx_events)
 
-        for transmitter in [7]: #range(len(testbed.devs)): TODO!!
-            for receiver in [0]: #range(len(testbed.devs)):
+        for transmitter in range(len(testbed.devs)):
+            for receiver in range(len(testbed.devs)):
                 if receiver != transmitter:
                     if len(rx_df.index) > 0 and len(tx_df.index) > 0:
                         pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
-                        rx_var_est = estimate_noise_std_with_lls(pairs)
+                        rx_var_est = estimate_noise_std_with_lls_grouped(pairs)
+
+                        #pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
+                        #rx_var_est_cfo = estimate_noise_std_with_cfo_mean(pairs)
 
                         e = {
                             'round': r,
@@ -769,7 +811,7 @@ if __name__ == '__main__':
     up_to_round = None # 200?
     use_bias_correction = True
     tdoa_src_dev_number = 0
-    log = 'exp_rx_noise_10046'
+    log = 'exp_rx_noise_10041'
 
     estimate_rx_noise_using_cfo(trento_b, log, bias_corrected=use_bias_correction, skip_to_round = skip_to_round, up_to_round = up_to_round)
 
