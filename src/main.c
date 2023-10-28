@@ -195,7 +195,7 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
 
     // 2, 3, 4, 5, 6, 7, 8, 9, 10 (2 ms are always added anyway)
-    uint64t add_slots = r % 9;
+    uint64_t add_slots = r % 9;
     uint8_t m = slot % 3;
 
     if (m == 0) {
