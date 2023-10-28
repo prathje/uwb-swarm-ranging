@@ -49,7 +49,6 @@ LOG_MODULE_REGISTER(main);
     // make sure that the history has enough space to hold all of this!!
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
     #define SLOTS_PER_EXCHANGE 3
-    #define RESP_REPS 20
     #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
 #endif
 
@@ -194,15 +193,15 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
-    // Schedule some dummy rounds in the beginning
 
-    uint16_t add_slots = r/RESP_REPS;
+    // 2, 3, 4, 5, 6, 7, 8, 9, 10 (2 ms are always added anyway)
+    uint64t add_slots = r % 9;
     uint8_t m = slot % 3;
 
     if (m == 0) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS+SLOT_DUR_UUS*add_slots);
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS+(SLOT_DUR_UUS*add_slots)/2);
     } else if(m == 1) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS*5); // 10 ms response
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS*3); // 6 ms response
     } else {
         return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
     }
