@@ -333,17 +333,18 @@ def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pair
 import pandas as pd
 
 
-def gen_round_events(testbed, run):
+def gen_round_events(testbed, run, iter_per_device=True):
     logfile = "data/{}/{}.log".format(testbed.name, run)
 
-    cur_rx_events = []
-    cur_tx_events = []
+    def gen_round_events_for_iter(it, filter_dev=None):
+        it_rx_events = []
+        it_tx_events = []
+        it_round = None
 
-    cur_round = None
+        for log_ts, dev, x in it:
+            if filter_dev is not None and filter_dev != dev:
+                continue
 
-    with open(logfile) as f:
-        msg_gen = testbed.parse_messages_from_lines(f)
-        for (_, _, x) in msg_gen:
             e = x['event']
 
             if e == 'rx':
@@ -353,24 +354,53 @@ def gen_round_events(testbed, run):
             else:
                 continue
 
-            if cur_round is None:
-                cur_round = e_r
+            if it_round is None:
+                it_round = e_r
 
-            if cur_round < e_r:
-                yield cur_round, cur_rx_events, cur_tx_events
-                cur_rx_events = []
-                cur_tx_events = []
-                cur_round = e_r
+            if it_round < e_r:
+                yield it_round, it_rx_events, it_tx_events
+                it_rx_events = []
+                it_tx_events = []
+                it_round = e_r
 
             if e == 'rx':
-                cur_rx_events.append(x)
+                it_rx_events.append(x)
             elif e == 'tx':
-                cur_tx_events.append(x)
+                it_tx_events.append(x)
             elif e == 'init':
                 pass
-    # yield last entries
-    if len(cur_rx_events) > 0 or len(cur_tx_events) > 0:
-        yield cur_round, cur_rx_events, cur_tx_events
+        if len(it_rx_events) > 0 or len(it_tx_events) > 0:
+            yield it_round, it_rx_events, it_tx_events
+
+    with open(logfile) as f:
+        msg_gen = testbed.parse_messages_from_lines(f)
+
+        if iter_per_device:
+            import itertools
+            it_copies = itertools.tee(msg_gen, len(testbed.devs))
+            dev_iters = [gen_round_events_for_iter(it, filter_dev=d) for d, it in zip(testbed.devs, it_copies)]
+
+            round_events = [next(di, (None, [], [])) for di in dev_iters]
+            while True:
+                min_round = min([re[0] for re in round_events if re[0] is not None], default=None)
+
+                if min_round is None:
+                    break  # we are done
+
+                all_rx_events = []
+                all_tx_events = []
+
+                for i, re in enumerate(round_events):
+                    if re[0] == min_round:
+                        all_rx_events += re[1]
+                        all_tx_events += re[2]
+                        round_events[i] = next(dev_iters[i], (None, [], [])) #advance this it
+                    else:
+                        print("min_round", min_round, i, re[0])
+
+                yield min_round, all_rx_events, all_tx_events
+        else:
+            yield from gen_round_events_for_iter(msg_gen)
 
 def gen_all_rx_events(testbed, run, skip_to_round=None, until_round=None):
     round_gen = gen_round_events(testbed, run)
@@ -619,7 +649,7 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
         rx_df = pd.DataFrame.from_records(rx_events)
         tx_df = pd.DataFrame.from_records(tx_events)
 
-        print(r)
+        print(r, len(rx_events), len(tx_events))
 
         for (a, da) in enumerate(testbed.devs):
             for (b, db) in enumerate(testbed.devs):
