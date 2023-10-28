@@ -1555,8 +1555,7 @@ def export_loc_sim(config, export_dir):
 
 def get_df(log, tdoa_src_dev_number, use_bias_correction):
     def proc():
-        it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
-                              bias_corrected=use_bias_correction)
+        it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
         df = pd.DataFrame.from_records(it)
         df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
         df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
@@ -2913,6 +2912,29 @@ def export_base_rx_noise_level_tdoa(config, export_dir):
     print(x)
     exit()
 
+def export_delay_exp(config, export_dir):
+
+    log = 'exp_resp_delays_10121'
+
+    # TODO add passive_df!!
+    active_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=True)
+    #active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+    #                                                           use_bias_correction=True, skip_to_round=0,
+    #                                                           up_to_round=None)
+
+    active_df['delay_b_ms'] = active_df['delay_b'].apply(lambda x : np.round(convert_ts_to_sec(x) * 1000))
+
+    active_df = active_df[active_df['delay_b_ms'] < 50]
+
+
+    active_df_aggr = active_df.groupby('delay_b_ms').agg('count')
+
+    active_df_aggr.plot.line(y='twr_tof_ds_err')
+
+    plt.show()
+
+
+
 if __name__ == '__main__':
 
     config = load_env_config()
@@ -2935,7 +2957,7 @@ if __name__ == '__main__':
         #export_overall_rmse_reduction,
         #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        export_tdoa_simulation_response_std,
+        #export_tdoa_simulation_response_std,
         #export_tdoa_simulation_response_std_scatter,
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
@@ -2966,6 +2988,7 @@ if __name__ == '__main__':
         #export_histogram_mean,
         #export_new_twr_variance_based_model_for_tof,
         #export_base_rx_noise_level_tdoa
+        export_delay_exp
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
