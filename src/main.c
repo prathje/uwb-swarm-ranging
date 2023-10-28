@@ -518,8 +518,8 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
                 }
             }
 
-            if (next_slot == 0) {
-                cur_round = MAX(cur_round, rx_round); // we might have missed a round!
+            if (next_slot == 0 && rx_round >= cur_round) {
+                cur_round = rx_round; // we might have missed a round! (or this is just the start of something new?)
                 next_slot = rx_slot+1; // this should always be > 0 so we do not execute this thing twice...
                 round_start_dwt_ts = rx_ts; // TODO: we neglect any airtime and other delays at this point but it should be "good enough"
                 k_sem_give(&round_start_sem);
