@@ -37,7 +37,7 @@ LOG_MODULE_REGISTER(main);
 #define EXP_NOISE 1
 #define EXP_RESP_DELAYS 5
 
-#define CURRENT_EXPERIMENT EXP_TWR
+#define CURRENT_EXPERIMENT EXP_RESP_DELAYS
 
 #if CURRENT_EXPERIMENT == EXP_TWR
     #define SLOTS_PER_EXCHANGE 3
@@ -49,6 +49,7 @@ LOG_MODULE_REGISTER(main);
     // make sure that the history has enough space to hold all of this!!
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
     #define SLOTS_PER_EXCHANGE 3
+    #define RESP_REPS 20
     #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
 #endif
 
@@ -193,27 +194,17 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
-    r -= 10; // Schedule some dummy rounds in the beginning
+    // Schedule some dummy rounds in the beginning
 
-    if (r <  0) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS);
-    }
-    else {
-        uint64_t reps = 10;
+    uint16_t add_slots = r/RESP_REPS;
+    uint8_t m = slot % 3;
 
-        uint8_t m = slot % 3;
-        uint64_t overall_half_slot_dur = 20;
-        uint64_t half_slot_dur = SLOT_DUR_UUS/2;
-        int64_t first_mult = (r/reps)+2; // we need at least 2 slot dur
-        uint64_t second_mult = MAX(2, (int64_t)overall_half_slot_dur+2-first_mult); // we need at least 2 slot dur at any point
-
-        if (m == 0) {
-            return UUS_TO_DWT_TS(half_slot_dur*first_mult);
-        } else if(m == 1) {
-            return UUS_TO_DWT_TS(half_slot_dur*second_mult);
-        } else {
-            return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
-        }
+    if (m == 0) {
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS+SLOT_DUR_UUS*add_slots);
+    } else if(m == 1) {
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS*5); // 10 ms response
+    } else {
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
     }
 }
 

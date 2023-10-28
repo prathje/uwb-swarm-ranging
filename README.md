@@ -32,6 +32,8 @@ cp -Rf /app/override/* /zephyr/zephyr/
 west build -b decawave_dwm1001_dev --pristine auto
 ```
 
+sudo pip3 install cmake
+
 
 To run and deploy on Lille:
 ```commandline

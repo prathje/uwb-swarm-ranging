@@ -136,7 +136,6 @@ def calc_simple_ds(ex, mitigate_drift=True):
 
     return (round_a-delay_b*relative_drift) * 0.25 + (round_b*relative_drift-delay_a) * 0.25
 
-
 def calc_tdoa_simple(ex, mitigate_drift=True):
 
     rel_cd_a = ex['passive_overall'] / (ex['round_a'] + ex['delay_a'])
@@ -229,9 +228,9 @@ def calculate_in_place(data_rows, mitigate_drift=True):
         yield r
 
 
-def sim(num_exchanges = 100000, resp_delay_s=RESP_DELAY_S, node_drift_std=NODE_DRIFT_STD, tx_delay_mean=TX_DELAY_MEAN, tx_delay_std=TX_DELAY_STD, rx_delay_mean=RX_DELAY_MEAN, rx_delay_std=RX_DELAY_STD, rx_noise_std=RX_NOISE_STD):
+def sim(num_exchanges = 100000, resp_delay_s=RESP_DELAY_S, node_drift_std=NODE_DRIFT_STD, tx_delay_mean=TX_DELAY_MEAN, tx_delay_std=TX_DELAY_STD, rx_delay_mean=RX_DELAY_MEAN, rx_delay_std=RX_DELAY_STD, rx_noise_std=RX_NOISE_STD, mitigate_drift=True):
 
-    data_rows = list(calculate_in_place([sim_exchange(0, 1, resp_delay_s=resp_delay_s, node_drift_std = node_drift_std, tx_delay_mean = tx_delay_mean, tx_delay_std = tx_delay_std, rx_delay_mean = rx_delay_mean, rx_delay_std = rx_delay_std, rx_noise_std = rx_noise_std) for x in range(num_exchanges)], mitigate_drift= node_drift_std != 0.0))
+    data_rows = list(calculate_in_place([sim_exchange(0, 1, resp_delay_s=resp_delay_s, node_drift_std = node_drift_std, tx_delay_mean = tx_delay_mean, tx_delay_std = tx_delay_std, rx_delay_mean = rx_delay_mean, rx_delay_std = rx_delay_std, rx_noise_std = rx_noise_std) for x in range(num_exchanges)], mitigate_drift= mitigate_drift))
 
     data = {}
     for k in data_rows[0]:

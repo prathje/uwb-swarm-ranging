@@ -1173,20 +1173,21 @@ def export_tdoa_simulation_response_std(config, export_dir):
     xs = response_delay_exps
     num_sims = 10000
     node_drift_std= 10.0/1000000.0
+    mitigate_drift = True
 
     for resp_delay_s in [0.001, 0.002, 0.004]:
 
         def proc():
             data_rows = []
             for x in xs:
-
                 res, _ = sim(
                     num_exchanges=num_sims,
-                    resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
+                    resp_delay_s=(resp_delay_s*np.power(10, x), resp_delay_s),
                     node_drift_std=node_drift_std,
                     rx_noise_std=1.0e-09,
                     tx_delay_mean=0.0,
-                    tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
+                    tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0,
+                    mitigate_drift=mitigate_drift
                 )
 
                 data_rows.append(
@@ -1210,7 +1211,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
                 )
             return data_rows
 
-        data_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 11, num_sims, resp_delay_s, node_drift_std), proc)
+        data_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 12, num_sims, resp_delay_s, node_drift_std, mitigate_drift), proc)
 
 
         df = pd.DataFrame(data_rows)
@@ -1228,14 +1229,13 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         plt.clf()
         ax = df.plot.line(x='rdr', y=[
-            'ToF Sample SD',
-            #'ToF DS SD',
-            'TDoA Sample SD',
-            #'TDoA DS SD',
+            'ToF SD',
+            'ToF DS SD',
+            'TDoA SD',
+            'TDoA DS SD',
             #'TDoA (w/ DC) SD',
             #'TDoA DS (w/ DC) SD'
-        ],
-                          style=['*-', 'o-', '^-', 'x-']
+        ],style=['*-', 'o-', '^-', 'x-'], alpha=0.5
           ) # todo plot with markers and different line styles...
 
         ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
@@ -1286,11 +1286,10 @@ def export_tdoa_simulation_response_std(config, export_dir):
         labels.append(r'$\sqrt{0.5}\sigma$')
         labels.append(r'$\sqrt{2.5}\sigma$')
 
-        #
-        # ticks.append(np.sqrt(0.5)*np.sqrt(0.5))
-        # ticks.append(np.sqrt(0.5)*np.sqrt(2.5))
-        # labels.append(r'$\sqrt{\frac{0.5}{2}}\sigma$')
-        # labels.append(r'$\sqrt{\frac{2.5}{2}}\sigma$')
+        ticks.append(np.sqrt(0.375))
+        ticks.append(np.sqrt(1.875))
+        labels.append(r'$\sqrt{0.375}\sigma$')
+        labels.append(r'$\sqrt{1.875}\sigma$')
 
         ax.set_yticks(ticks)
         ax.set_yticklabels(labels)
@@ -2806,6 +2805,113 @@ def export_predicted_ds_twr(config, export_dir):
 
         plt.close()
 
+def export_base_rx_noise_level_tof(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    skip_to_round = 50
+
+    rx_noise_df = get_cached_rx_noise(trento_b, 'exp_rx_noise_10039', bias_corrected=True,
+                                      skip_to_round=skip_to_round)
+
+    twr_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction,
+                                                   skip_to_round=skip_to_round)
+
+    rx_var_dict = {}
+    for tx in range(len(trento_b.devs)):
+        for rx in range(len(trento_b.devs)):
+            if tx != rx:
+                m_rx_std = rx_noise_df[(rx_noise_df['tx_number'] == tx) & (rx_noise_df['rx_number'] == rx)][
+                    'rx_std_est'].median()
+                rx_var_dict[(tx, rx)] = (m_rx_std * m_rx_std)
+
+    def construct_coeff(pair):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+
+        base_rx_noise = np.zeros(shape=len(trento_b.devs))
+        path_noises = np.zeros(shape=round(len(trento_b.devs)*(len(trento_b.devs)-1)/2))
+
+        base_rx_noise[a] = 1
+        base_rx_noise[b] = 1
+
+        path_noises[pair_index(a,b)] = 1
+
+        return np.concatenate((base_rx_noise, path_noises))
+
+    #k = 'twr_tof_ds_err_std'
+    k = 'twr_tof_ds_err_std'
+    coeff = np.asarray([construct_coeff(x['_filter_pair']) for (i, x) in twr_df.iterrows()])
+    ordinate = np.asarray([r[k] * r[k] for (i, r) in twr_df.iterrows()])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+
+    # ss_tot = ((all_df[k]-all_df[k].mean()) * (all_df[k]-all_df[k].mean())).sum()
+    ss_tot = ((twr_df[k] * twr_df[k] - (twr_df[k] * twr_df[k]).mean()) * (
+                twr_df[k] * twr_df[k] - (twr_df[k] * twr_df[k]).mean())).sum()
+
+    r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
+    print("R2 score", r2)
+    print(x)
+    exit()
+
+def export_base_rx_noise_level_tdoa(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    skip_to_round = 50
+
+    rx_noise_df = get_cached_rx_noise(trento_b, 'exp_rx_noise_10039', bias_corrected=True,
+                                      skip_to_round=skip_to_round)
+
+    twr_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction,
+                                                   skip_to_round=skip_to_round)
+
+    rx_var_dict = {}
+    for tx in range(len(trento_b.devs)):
+        for rx in range(len(trento_b.devs)):
+            if tx != rx:
+                m_rx_std = rx_noise_df[(rx_noise_df['tx_number'] == tx) & (rx_noise_df['rx_number'] == rx)][
+                    'rx_std_est'].median()
+                rx_var_dict[(tx, rx)] = (m_rx_std * m_rx_std)
+
+    def construct_coeff(pair, p):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+
+        base_rx_noise = np.zeros(shape=len(trento_b.devs))
+        path_noises = np.zeros(shape=round(len(trento_b.devs)*(len(trento_b.devs)-1)/2))
+
+        base_rx_noise[a] = 0.25
+        base_rx_noise[b] = 0.25
+        path_noises[pair_index(a,b)] = 0.5
+
+        base_rx_noise[p] = 2
+        path_noises[pair_index(a,p)] = 1
+        path_noises[pair_index(b,p)] = 1
+
+        return np.concatenate((base_rx_noise, path_noises, [1]))
+
+
+    #k = 'twr_tof_ds_err_std'
+    k = 'tdoa_est_ss_init_err_std'
+    twr_df = twr_df[twr_df['tdoa_count'].notna()]
+
+    coeff = np.asarray([construct_coeff(x['_filter_pair'], x['_filter_passive_listener']) for (i, x) in twr_df.iterrows()])
+    ordinate = np.asarray([r[k] * r[k] for (i, r) in twr_df.iterrows()])
+    print(coeff[0:4])
+    print(ordinate[0:4])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+
+    # ss_tot = ((all_df[k]-all_df[k].mean()) * (all_df[k]-all_df[k].mean())).sum()
+    ss_tot = ((twr_df[k] * twr_df[k] - (twr_df[k] * twr_df[k]).mean()) * (
+                twr_df[k] * twr_df[k] - (twr_df[k] * twr_df[k]).mean())).sum()
+
+    r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
+    print("R2 score", r2)
+    print(x)
+    exit()
 
 if __name__ == '__main__':
 
@@ -2829,7 +2935,7 @@ if __name__ == '__main__':
         #export_overall_rmse_reduction,
         #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        #export_tdoa_simulation_response_std,
+        export_tdoa_simulation_response_std,
         #export_tdoa_simulation_response_std_scatter,
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
@@ -2857,8 +2963,9 @@ if __name__ == '__main__':
         #export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
         #export_histograms,
-        export_histogram_mean,
-        #export_new_twr_variance_based_model_for_tof
+        #export_histogram_mean,
+        #export_new_twr_variance_based_model_for_tof,
+        #export_base_rx_noise_level_tdoa
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
