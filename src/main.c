@@ -482,8 +482,12 @@ int main(void) {
             next_slot++;
         }
 
-        // we sleep here to the end of the last slot, so that we do not receive a message that overrides anything, especially not our round_started sem!!
-        sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts+UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS)) & DWT_TS_MASK);
+            // we sleep here to the end of the last slot, so that we do not receive a message that overrides anything, especially not our round_started sem!!
+        {
+            uint64_t cur_ts = dwt_system_ts(ieee802154_dev);
+            uint64_t wanted_ts = cur_ts + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS);
+            sleep_until_dwt_ts(wanted_ts & DWT_TS_MASK);
+        }
 
         if (LOG_SCHEDULING) {
             char buf[512];
