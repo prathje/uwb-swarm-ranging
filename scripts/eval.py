@@ -1166,25 +1166,64 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
     from sim_tdoa import sim
 
-    limit = 6.0
-    step = 0.1
+    limit = 2.0
+    step = 0.05
     response_delay_exps = np.arange(-limit, limit+step, step)
 
     xs = response_delay_exps
-    num_sims = 10000
-    node_drift_std= 10.0/1000000.0
+    num_sims = 1000
+    node_drift_std = 10.0/1000000.0
     mitigate_drift = True
+    rx_noise_std = 1.0e-09
 
-    for resp_delay_s in [0.001, 0.002, 0.004]:
+    rx_noise_stds = {
+        'a-b': rx_noise_std,
+        'b-a': rx_noise_std*2,
+        'a-p': rx_noise_std,
+        'b-p': rx_noise_std,
+    }
+
+    def get_rx_noise(tx, rx):
+        if isinstance(rx_noise_stds, dict):
+            return rx_noise_stds["{}-{}".format(tx, rx)]
+        else:
+            return rx_noise_stds
+
+    def calc_predicted_tof_std(delay_b, delay_a):
+        a_b_std = get_rx_noise('a', 'b')
+        b_a_std = get_rx_noise('b', 'a')
+
+        return np.sqrt(
+            (0.5 * b_a_std) ** 2
+            + (0.5 * (delay_b / (delay_a + delay_b)) * a_b_std) ** 2
+            + (0.5 * (1 - (delay_b / (delay_a + delay_b))) * a_b_std) ** 2
+        )
+
+    def calc_predicted_tdoa_std(delay_b, delay_a):
+        return 0.0
+        a_b_std = rx_noise_std
+        b_a_std = rx_noise_std
+
+        return np.sqrt(
+            (0.5 * b_a_std) ** 2
+            + (0.5 * (delay_b / (delay_a + delay_b)) * a_b_std) ** 2
+            + (0.5 * (1 - (delay_b / (delay_a + delay_b))) * b_a_std) ** 2
+        )
+
+
+    for resp_delay_s in [0.002, 0.02, 0.2]:
 
         def proc():
             data_rows = []
             for x in xs:
+                delay_a = resp_delay_s * np.power(10, x)
+                delay_b = resp_delay_s
+
                 res, _ = sim(
                     num_exchanges=num_sims,
-                    resp_delay_s=(resp_delay_s*np.power(10, x), resp_delay_s),
+                    resp_delay_s=(delay_b, delay_a),
                     node_drift_std=node_drift_std,
-                    rx_noise_std=1.0e-09,
+                    rx_noise_std=rx_noise_stds,
                     tx_delay_mean=0.0,
                     tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0,
                     mitigate_drift=mitigate_drift
@@ -1205,13 +1244,15 @@ def export_tdoa_simulation_response_std(config, export_dir):
                         'tdoa_ds_mean': 1.0e09 * (res['est_tdoa_ds']).mean(),
                         'tdoa_half_cor_mean': 1.0e09 * (res['est_tdoa_half_cor']).mean(),
                         'tdoa_ds_half_cor_mean': 1.0e09 * (res['est_tdoa_ds_half_cor']).mean(),
+                        'predicted_tof_std': 1.0e09 * calc_predicted_tof_std(delay_b, delay_a),
+                        'predicted_tdoa_std': 1.0e09 * calc_predicted_tdoa_std(delay_b, delay_a)
                         #'tof_std_se': tof_std.std() / tof_std.size,
                         #'tdoa_std_se': tdoa_std.mean() / tdoa_std.size,
                     }
                 )
             return data_rows
 
-        data_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 12, num_sims, resp_delay_s, node_drift_std, mitigate_drift), proc)
+        data_rows = proc() #cached( ('export_tdoa_simulation_response_std_new', limit, step, 14, num_sims, resp_delay_s, node_drift_std, mitigate_drift), proc)
 
 
         df = pd.DataFrame(data_rows)
@@ -1222,8 +1263,12 @@ def export_tdoa_simulation_response_std(config, export_dir):
             "tdoa_std": "TDoA SD",
             "tdoa_ds_std": "TDoA DS SD",
             "tdoa_half_cor_std": "TDoA (w/ DC) SD",
-            "tdoa_ds_half_cor_std": "TDoA DS (w/ DC) SD"
+            "tdoa_ds_half_cor_std": "TDoA DS (w/ DC) SD",
+            "predicted_tof_std": "Analytical ToF SD"
         })
+
+
+
 
         print("MIN", df.min())
 
@@ -1233,6 +1278,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
             'ToF DS SD',
             'TDoA SD',
             'TDoA DS SD',
+            'Analytical ToF SD',
             #'TDoA (w/ DC) SD',
             #'TDoA DS (w/ DC) SD'
         ],style=['*-', 'o-', '^-', 'x-'], alpha=0.5
@@ -1280,11 +1326,14 @@ def export_tdoa_simulation_response_std(config, export_dir):
         ticks = list(ax.get_yticks())
         labels = list(ax.get_yticklabels())
 
-        ticks.append(np.sqrt(0.5))
-        ticks.append(np.sqrt(2.5))
+        ticks.append(1.0e09 * np.sqrt((0.5*get_rx_noise('a', 'b'))**2 + (0.5*get_rx_noise('b', 'a'))**2))
+        labels.append(r'$\sqrt{0.5^2 \sigma_{BA}^2 + 0.5^2 \sigma_{AB}^2}$')
 
-        labels.append(r'$\sqrt{0.5}\sigma$')
-        labels.append(r'$\sqrt{2.5}\sigma$')
+        #ticks.append(np.sqrt(0.5))
+        #ticks.append(np.sqrt(2.5))
+
+        #labels.append(r'$\sqrt{0.5}\sigma$')
+        #labels.append(r'$\sqrt{2.5}\sigma$')
 
         ticks.append(np.sqrt(0.375))
         ticks.append(np.sqrt(1.875))
@@ -1319,6 +1368,9 @@ def export_tof_simulation_response_std(config, export_dir):
     num_repetitions = 1
     resp_delay_s = 1.0
 
+    rx_noise_std = 1.0e-09
+
+
     def proc():
         data_rows = []
         for x in xs:
@@ -1327,7 +1379,7 @@ def export_tof_simulation_response_std(config, export_dir):
                 num_exchanges=num_sims,
                 resp_delay_s=(resp_delay_s, resp_delay_s*np.power(10, x)),
                 node_drift_std=100.0/1000000.0,
-                rx_noise_std=1.0e-09,
+                rx_noise_std=rx_noise_std,
                 tx_delay_mean=0.0,
                 tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0
             )
@@ -1411,12 +1463,12 @@ def export_tdoa_simulation_response_std_scatter(config, export_dir):
 
     from sim_tdoa import sim
 
-
     response_delay_exps = np.arange(-6.0, 6+1, 0.25)
 
     xs = response_delay_exps
     num_sims = 100
     resp_delay_s = 1.0
+
 
     def proc():
         data_rows = []
@@ -1930,11 +1982,10 @@ def export_new_twr_variance_based_model_for_tof(config, export_dir):
     def construct_coeff(pair):
         a, b = pair.split("-")
         a, b = int(a), int(b)
-        return [rx_var_dict[(a, b)], rx_var_dict[(b, a)], 1]
+        return [rx_var_dict[(a, b)]*0.125, rx_var_dict[(b, a)]*0.25]
 
 
-
-    k = 'twr_tof_ss_err_std'
+    k = 'twr_tof_ds_err_std'
     coeff = np.asarray([construct_coeff(x['_filter_pair']) for (i, x) in twr_df.iterrows()])
     ordinate = np.asarray([r[k]*r[k] for (i, r) in twr_df.iterrows()])
 
@@ -1950,6 +2001,108 @@ def export_new_twr_variance_based_model_for_tof(config, export_dir):
 
 
 
+def export_final_twr_variance_based_model(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    skip_to_round=50
+
+    twr_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round)
+
+    # we first derive rx noise from the twr results
+
+    def construct_sym_coeff(pair, passive=None):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        base_rx_noise = np.zeros(shape=(round((len(trento_b.devs) * (len(trento_b.devs)-1))/2)))
+        base_rx_noise[pair_index(b, a)] = 0.25+0.125
+        return base_rx_noise
+
+    def construct_asym_coeff(pair, passive=None):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        base_rx_noise = np.zeros(shape=(len(trento_b.devs)* (len(trento_b.devs)-1)))
+        def calc_index(tx, rx):
+            base = rx*(len(trento_b.devs)-1)
+
+            assert tx != rx
+            if tx > rx:
+                tx -= 1
+
+            return base+tx
+        assert calc_index(b, a) != calc_index(a, b)
+
+        base_rx_noise[calc_index(b, a)] = 0.25
+        base_rx_noise[calc_index(a, b)] = 0.125
+        return base_rx_noise
+
+
+    twr_df = twr_df[twr_df['_filter_passive_listener'] == 0]
+
+    k = 'twr_tof_ds_err_std'
+    coeff = np.asarray([construct_sym_coeff(x['_filter_pair']) for (i, x) in twr_df.iterrows()])
+    ordinate = np.asarray([r[k]*r[k] for (i, r) in twr_df.iterrows()])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+
+    print(sum_of_squared_residuals)
+    #ss_tot = ((all_df[k]-all_df[k].mean()) * (all_df[k]-all_df[k].mean())).sum()
+    ss_tot = ((twr_df[k]*twr_df[k]-(twr_df[k]*twr_df[k]).mean()) * (twr_df[k]*twr_df[k]-(twr_df[k]*twr_df[k]).mean())).sum()
+    r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
+    print("R2 score", r2)
+    print(x)
+    exit()
+
+def export_final_tdoa_variance_based_model(config, export_dir):
+    log = 'job_tdma_long'
+
+    use_bias_correction = True
+    skip_to_round=50
+
+    twr_df = cached_compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round)
+
+    # we first derive rx noise from the twr results
+
+    def construct_sym_coeff(pair, passive=None):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        base_rx_noise = np.zeros(shape=(round((len(trento_b.devs) * (len(trento_b.devs)-1))/2)))
+        base_rx_noise[pair_index(b, a)] = 0.25+0.125
+        return base_rx_noise
+
+    def construct_asym_coeff(pair, passive=None):
+        a, b = pair.split("-")
+        a, b = int(a), int(b)
+        base_rx_noise = np.zeros(shape=(len(trento_b.devs)* (len(trento_b.devs)-1)))
+        def calc_index(tx, rx):
+            base = rx*(len(trento_b.devs)-1)
+
+            assert tx != rx
+            if tx > rx:
+                tx -= 1
+
+            return base+tx
+        assert calc_index(b, a) != calc_index(a, b)
+
+        base_rx_noise[calc_index(b, a)] = 0.25
+        base_rx_noise[calc_index(a, b)] = 0.125
+        base_rx_noise[calc_index(a, p)] = 1
+        base_rx_noise[calc_index(b, p)] = 1
+        return base_rx_noise
+
+    k = 'twr_tof_ds_err_std'
+    coeff = np.asarray([construct_sym_coeff(x['_filter_pair'], x['_filter_passive_listener']) for (i, x) in twr_df.iterrows()])
+    ordinate = np.asarray([r[k]*r[k] for (i, r) in twr_df.iterrows()])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+
+    print(sum_of_squared_residuals)
+    #ss_tot = ((all_df[k]-all_df[k].mean()) * (all_df[k]-all_df[k].mean())).sum()
+    ss_tot = ((twr_df[k]*twr_df[k]-(twr_df[k]*twr_df[k]).mean()) * (twr_df[k]*twr_df[k]-(twr_df[k]*twr_df[k]).mean())).sum()
+    r2 = 1 - sum_of_squared_residuals / ss_tot.sum()
+    print("R2 score", r2)
+    print(x)
+    exit()
 
 def export_new_twr_variance_based_model_using_ss_diff(config, export_dir):
     log = 'job_tdma_long'
@@ -2696,6 +2849,11 @@ def export_measured_rx_noise(config, export_dir):
     use_bias_correction = True
     log = 'exp_rx_noise_10041'
 
+    # we also directly search for the triples with the lowest rx variance variation
+
+    lowest_var = 100000.0
+    lowest_tripel = []
+
     for (c, t) in enumerate([trento_b]):
 
         est_df = get_cached_rx_noise(t, log, bias_corrected=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
@@ -2715,6 +2873,27 @@ def export_measured_rx_noise(config, export_dir):
                     else:
                         s = np.nan
                     ma[a, b] = s
+
+        tripel_stds = []
+        for a in range(len(t.devs)):
+            for b in range(len(t.devs)):
+                for c in range(len(t.devs)):
+                    if b != a and c != a and c != b:
+                        stds = np.asarray([
+                            ma[a, b],
+                            ma[b, a],
+                            ma[a, c],
+                            ma[c, a],
+                            ma[b, c],
+                            ma[c, b],
+                        ])
+
+                        tripel_stds.append({
+                            'tripel': "{}-{}-{}".format(a,b,c),
+                            'std': stds.std()
+                        })
+        tripel_df = pd.DataFrame.from_records(tripel_stds).sort_values('std')
+        print(tripel_df.head(20))
 
         print(t.name, "mean std", ma.mean(), "median", np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
@@ -2957,7 +3136,7 @@ if __name__ == '__main__':
         #export_overall_rmse_reduction,
         #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        #export_tdoa_simulation_response_std,
+        export_tdoa_simulation_response_std,
         #export_tdoa_simulation_response_std_scatter,
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
@@ -2988,7 +3167,10 @@ if __name__ == '__main__':
         #export_histogram_mean,
         #export_new_twr_variance_based_model_for_tof,
         #export_base_rx_noise_level_tdoa
-        export_delay_exp
+        #export_delay_exp
+        #export_final_twr_variance_based_model,
+        #export_final_tdoa_variance_based_model
+        #export_new_twr_variance_based_model_for_tof
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):

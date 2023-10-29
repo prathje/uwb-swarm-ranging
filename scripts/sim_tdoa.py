@@ -72,12 +72,19 @@ def sim_exchange(a, b, resp_delay_s=RESP_DELAY_S, node_drift_std=NODE_DRIFT_STD,
         resp_delay_s_a = resp_delay_s
         resp_delay_s_b = resp_delay_s
 
+    def get_rx_noise(tx, rx):
+        if isinstance(rx_noise_std, dict):
+            return rx_noise_std["{}-{}".format(tx, rx)]
+        else:
+            return rx_noise_std
+
     a_actual_poll_tx = 0
-    b_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=t, scale=rx_noise_std)
+    b_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=t, scale=get_rx_noise('a', 'b'))
     b_actual_response_tx = b_actual_poll_rx + resp_delay_s_a
-    a_actual_response_rx = b_actual_response_tx + np.random.normal(loc=t, scale=rx_noise_std)
+    a_actual_response_rx = b_actual_response_tx + np.random.normal(loc=t, scale=get_rx_noise('b', 'a'))
     a_actual_final_tx = a_actual_response_rx + resp_delay_s_b
-    b_actual_final_rx = a_actual_final_tx + np.random.normal(loc=t, scale=rx_noise_std)
+    b_actual_final_rx = a_actual_final_tx + np.random.normal(loc=t, scale=get_rx_noise('a', 'b'))
+
 
     # tx timestamps are skewed in a negative way -> i.e. increase the measured_rtt
     a_delayed_poll_tx = a_actual_poll_tx - tx_delays[a]
@@ -95,9 +102,10 @@ def sim_exchange(a, b, resp_delay_s=RESP_DELAY_S, node_drift_std=NODE_DRIFT_STD,
     b_measured_delay_undrifted = b_delayed_response_tx - b_delayed_poll_rx
 
     # we compute times for TDoA using an additional passive node, note that we do not need delays here
-    p_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=tof_to_passive(a), scale=rx_noise_std)
-    p_actual_response_rx = b_actual_response_tx + np.random.normal(loc=tof_to_passive(b), scale=rx_noise_std)
-    p_actual_final_rx = a_actual_final_tx + np.random.normal(loc=tof_to_passive(a), scale=rx_noise_std)
+    p_actual_poll_rx = a_actual_poll_tx + np.random.normal(loc=tof_to_passive(a), scale=get_rx_noise('a', 'p'))
+    p_actual_response_rx = b_actual_response_tx + np.random.normal(loc=tof_to_passive(b), scale=get_rx_noise('b', 'p'))
+    p_actual_final_rx = a_actual_final_tx + np.random.normal(loc=tof_to_passive(a), scale=get_rx_noise('a', 'p'))
+
 
 
     return {
@@ -140,6 +148,19 @@ def calc_tdoa_simple(ex, mitigate_drift=True):
 
     rel_cd_a = ex['passive_overall'] / (ex['round_a'] + ex['delay_a'])
     rel_cd_b = rel_cd_a * ((ex['round_a'] + ex['delay_a']) / (ex['round_b'] + ex['delay_b'])) # we reuse the cd between passive and a to estimate the relative drift to b
+
+    if not mitigate_drift:
+         rel_cd_a = 1.0
+         rel_cd_b = 1.0
+
+    tdoa = 0.5*rel_cd_a*ex['round_a'] + 0.5*rel_cd_b*ex['delay_b'] - ex['passive_tdoa']
+
+    return tdoa
+
+def calc_tdoa_simple_2(ex, mitigate_drift=True):
+
+    rel_cd_a = ex['passive_overall'] / (ex['round_a'] + ex['delay_a'])
+    rel_cd_b = ex['passive_overall'] / (ex['round_b'] + ex['delay_b'])
 
     if not mitigate_drift:
          rel_cd_a = 1.0
@@ -217,7 +238,7 @@ def calculate_in_place(data_rows, mitigate_drift=True):
         # calculate tof in terms of a's clock using alt-ds calculations
         r['est_tof_a'] = calc_simple(r, mitigate_drift=mitigate_drift)
         r['est_tof_a_ds'] = calc_simple_ds(r, mitigate_drift=mitigate_drift)
-        r['est_tdoa'] = calc_tdoa_simple(r, mitigate_drift=mitigate_drift)
+        r['est_tdoa'] = calc_tdoa_simple_2(r, mitigate_drift=mitigate_drift)
         r['est_tdoa_half_cor'] = calc_tdoa_tof_half_corrected(r, mitigate_drift=mitigate_drift)
         r['est_tdoa_ds'] = calc_tdoa_ds(r, mitigate_drift=mitigate_drift)
         r['est_tdoa_ds_half_cor'] = calc_tdoa_ds_tof_half_corrected(r, mitigate_drift=mitigate_drift)
