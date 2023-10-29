@@ -49,7 +49,9 @@ LOG_MODULE_REGISTER(main);
     // make sure that the history has enough space to hold all of this!!
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
     #define SLOTS_PER_EXCHANGE 3
-    #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
+    //#define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
+    // we only schedule 3 nodes for now due to long resp delays
+    #define NUM_SLOTS (3*(2-1)*SLOTS_PER_EXCHANGE)
 #endif
 
 
@@ -192,16 +194,37 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
 
+int64_t exp_delays[15][2] =  {
+    {1, 1},
+    {1, 2},
+    {1, 5},
+    {1, 10},
+    {1, 50},
+    {1, 100},
+    {1, 500},
+    {1, 1000},
+    {2, 1},
+    {5, 1},
+    {10, 1},
+    {50, 1},
+    {100, 1},
+    {500, 1},
+    {1000, 1}
+};
+
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
 
-    // 2, 3, 4, 5, 6, 7, 8, 9, 10 (2 ms are always added anyway)
-    uint64_t add_slots = r % 9;
+    uint8_t exp = r % (sizeof(exp_delays)/sizeof(exp_delays[0]));
+
+    int64_t delay_b_multiplier = delay_exp[exp][0];
+    int64_t delay_a_multiplier = delay_exp[exp][1];
+
     uint8_t m = slot % 3;
 
     if (m == 0) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS+(SLOT_DUR_UUS*add_slots)/2);
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS*delay_b_multiplier);
     } else if(m == 1) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS*3); // 6 ms response
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS*delay_a_multiplier);
     } else {
         return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
     }
