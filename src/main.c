@@ -26,7 +26,11 @@ LOG_MODULE_REGISTER(main);
 #define TX_INVOKE_MIN_DELAY_UUS 500
 
 // This delays has to be below 17/2 s
-#define PRE_ROUND_DELAY_UUS 8000000
+#define PRE_ROUND_DELAY_UUS 4000000
+
+// We need this delay to ensure that late packets do not destroy our schedule
+// this might happen if the delay is very long, causing different sleep patters
+#define POST_ROUND_DELAY_UUS 2000000
 #define DWT_TS_MASK (0xFFFFFFFFFF)
 
 // Debug values
@@ -479,7 +483,7 @@ int main(void) {
         }
 
         // we sleep here to the end of the last slot, so that we do not receive a message that overrides anything, especially not our round_started sem!!
-        sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts) & DWT_TS_MASK);
+        sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts+UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS)) & DWT_TS_MASK);
 
         if (LOG_SCHEDULING) {
             char buf[512];
