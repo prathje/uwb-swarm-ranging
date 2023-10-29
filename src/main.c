@@ -51,7 +51,7 @@ LOG_MODULE_REGISTER(main);
     #define SLOTS_PER_EXCHANGE 3
     //#define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
     // we only schedule 3 nodes for now due to long resp delays
-    #define NUM_SLOTS (3*(2-1)*SLOTS_PER_EXCHANGE)
+    #define NUM_SLOTS (SLOTS_PER_EXCHANGE)
 #endif
 
 
@@ -128,8 +128,11 @@ static inline uint64_t ts_to_uint(const ts_t *ts) {
 // Note that it is not precise since we rely on the CPU cycles, yet, we just use it for rough syncs with the dwt clock
 // A small correction factor for the whole function execution
 
+
 // This function execution on its own has an overhead of roughly 83 us. We add a bit of buffer time to be kind of sure to schedule stuff correctly
 #define DWT_BUSY_WAIT_DWT_CORRECTION_US (100)
+
+//WARNING: This prevents rx events I think...
 static void busy_wait_until_dwt_ts(uint64_t wanted_ts) {
     uint64_t init_ts = dwt_system_ts(ieee802154_dev);
     uint64_t diff = DWT_TS_TO_US(((uint64_t)(wanted_ts-init_ts))&DWT_TS_MASK); // This should wrap around nicely
@@ -139,7 +142,6 @@ static void busy_wait_until_dwt_ts(uint64_t wanted_ts) {
         k_busy_wait(diff - DWT_BUSY_WAIT_DWT_CORRECTION_US);
     }
 }
-
 // This function execution on its own has an overhead of roughly 83 us. We add a bit of buffer time to be kind of sure to schedule stuff correctly
 #define DWT_SLEEP_DWT_CORRECTION_US (100+50)
 static void sleep_until_dwt_ts(uint64_t wanted_ts) {
@@ -153,7 +155,6 @@ static void sleep_until_dwt_ts(uint64_t wanted_ts) {
 }
 
 K_SEM_DEFINE(round_start_sem, 0, 1);
-
 
 #if CURRENT_EXPERIMENT == EXP_TWR
 
@@ -194,37 +195,54 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
 
-int64_t exp_delays[15][2] =  {
-    {1, 1},
-    {1, 2},
-    {1, 5},
-    {1, 10},
-    {1, 50},
-    {1, 100},
-    {1, 500},
-    {1, 1000},
-    {2, 1},
-    {5, 1},
-    {10, 1},
-    {50, 1},
-    {100, 1},
-    {500, 1},
-    {1000, 1}
+int64_t exp_delays[][2] =  {
+    {2, 2},
+    {3, 2},
+    {4, 2},
+    {5, 2},
+    {6, 2},
+    {7, 2},
+    {8, 2},
+    {9, 2},
+    {10, 2},
+    {12, 2},
+    {14, 2},
+    {16, 2},
+    {18, 2},
+    {20, 2},
+    {25, 2},
+    {50, 2},
+    {100, 2},
+    {200, 2},
+    {2, 2},
+    {2, 3},
+    {2, 4},
+    {2, 5},
+    {2, 6},
+    {2, 7},
+    {2, 8},
+    {2, 9},
+    {2, 10},
+    {2, 12},
+    {2, 14},
+    {2, 16},
+    {2, 18},
+    {2, 20}
 };
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
 
     uint8_t exp = r % (sizeof(exp_delays)/sizeof(exp_delays[0]));
 
-    int64_t delay_b_multiplier = delay_exp[exp][0];
-    int64_t delay_a_multiplier = delay_exp[exp][1];
+    int64_t delay_b_multiplier = exp_delays[exp][0];
+    int64_t delay_a_multiplier = exp_delays[exp][1];
 
     uint8_t m = slot % 3;
 
     if (m == 0) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS*delay_b_multiplier);
+        return UUS_TO_DWT_TS((SLOT_DUR_UUS*delay_b_multiplier)/2);
     } else if(m == 1) {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS*delay_a_multiplier);
+        return UUS_TO_DWT_TS((SLOT_DUR_UUS*delay_a_multiplier)/2);
     } else {
         return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
     }
