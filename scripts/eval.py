@@ -3110,16 +3110,22 @@ def export_delay_exp(config, export_dir):
     #                                                           use_bias_correction=True, skip_to_round=0,
     #                                                           up_to_round=None)
 
-    active_df['delay_b_ms'] = active_df['delay_b'].apply(lambda x : np.round(convert_ts_to_sec(x) * 1000))
-    active_df['delay_a_ms'] = active_df['delay_a'].apply(lambda x : np.round(convert_ts_to_sec(x) * 1000))
+    active_df['delay_b_ms'] = active_df['delay_b'].apply(lambda x : convert_ts_to_sec(x))
+    active_df['delay_a_ms'] = active_df['delay_a'].apply(lambda x : convert_ts_to_sec(x))
 
-    print(active_df['delay_a_ms'].unique())
-    print(active_df['delay_b_ms'].unique())
+    active_df['ratio'] = active_df['delay_b_ms'] / active_df['delay_a_ms']
+    active_df['ratio'] = np.log10(active_df['ratio'])
+    active_df['ratio_rounded'] = active_df['ratio'].apply(lambda x : np.round(x * 100))
+
+    active_df = active_df[active_df['ratio'].notnull()]
+
 
     #active_df = active_df[active_df['pair'] == "0-3"]
-    active_df_aggr = active_df.groupby('delay_b_ms').agg('count')
+    active_df_aggr = active_df.groupby('ratio_rounded').agg('std')
+    print(active_df_aggr)
 
-    #active_df.plot.scatter(x='delay_b_ms', y='twr_tof_ds_err')
+    #active_df_aggr.plot.scatter(x=active_df_aggr['ratio_rounded'], y='twr_tof_ds_err')
+    # TODO: Fit curve?!
     active_df_aggr.plot.line(y='twr_tof_ds_err')
 
     plt.show()
