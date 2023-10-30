@@ -653,6 +653,10 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
 
         print(r, len(rx_events), len(tx_events))
 
+        if len(rx_events) == 0 or len(tx_events) == 0:
+            continue
+
+
         for (a, da) in enumerate(testbed.devs):
             for (b, db) in enumerate(testbed.devs):
 
