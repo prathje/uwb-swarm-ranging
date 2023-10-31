@@ -3,6 +3,8 @@ import progressbar
 import numpy as np
 import json
 
+import scipy.optimize
+
 import logs
 import utility
 
@@ -1171,18 +1173,27 @@ def export_tdoa_simulation_response_std(config, export_dir):
     response_delay_exps = np.arange(-limit, limit+step, step)
 
     xs = response_delay_exps
-    num_sim_per_rep = 512
+    num_sim_per_rep = 128
     num_reps = 16
     node_drift_std = 10.0/1000000.0
     mitigate_drift = True
     rx_noise_std = 1.0e-09
 
     rx_noise_stds = {
-        'a-b': rx_noise_std,
+        'a-b': rx_noise_std*2,
         'b-a': rx_noise_std,
         'a-p': rx_noise_std,
         'b-p': rx_noise_std,
     }
+
+    def calc_delays(x):
+        if x >= 0:
+            delay_a = resp_delay_s * np.power(10, x)
+            delay_b = resp_delay_s
+        else:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * np.power(10, -x)
+        return delay_b, delay_a
 
     def get_rx_noise(tx, rx):
         if isinstance(rx_noise_stds, dict):
@@ -1210,28 +1221,26 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         return np.sqrt(
             (0.5 * b_a_std) ** 2
-            + (0.5 * a_b_std * (-1 + (delay_b/comb_delay))) ** 2
-            + (0.5 * a_b_std * (-delay_b/comb_delay)) ** 2
-            + (0.5 * a_p_std * ((-delay_b/comb_delay)-(delay_b/comb_delay)+2)) ** 2
-            + (0.5 * b_p_std * (-2)) ** 2
-            + (0.5 * a_p_std * (delay_b/comb_delay+delay_b/comb_delay)) ** 2
+            + (0.5 * a_b_std * (delay_b/comb_delay-1)) ** 2
+            + (0.5 * a_b_std * (delay_b/comb_delay)) ** 2
+            + (a_p_std * (1-delay_b/comb_delay)) ** 2
+            + b_p_std ** 2
+            + (a_p_std * (delay_b/comb_delay)) ** 2
         )
 
-
-    for resp_delay_s in [0.002]:
+    for resp_delay_s in [0.001]:
 
         def proc():
             data_rows = []
             prediction_rows = []
 
             for x in xs:
-                delay_a = resp_delay_s * np.power(10, x)
-                delay_b = resp_delay_s
+                delay_b, delay_a = calc_delays(x)
 
                 for i in range(num_reps):
                     res, _ = sim(
                         num_exchanges=num_sim_per_rep,
-                        resp_delay_s=(delay_b, delay_a),
+                        resp_delay_s=calc_delays(x),
                         node_drift_std=node_drift_std,
                         rx_noise_std=rx_noise_stds,
                         tx_delay_mean=0.0,
@@ -1264,7 +1273,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
                 })
             return data_rows, prediction_rows
 
-        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 14, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
+        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 18, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
 
         data_df = pd.DataFrame(data_rows)
         pred_df = pd.DataFrame(prediction_rows)
@@ -1293,7 +1302,15 @@ def export_tdoa_simulation_response_std(config, export_dir):
         data_df.plot.scatter(x='rdr', y='Simulated TDoA SD', ax=ax, c='C2', s=0.5, label='Simulated TDoA SD')
 
 
-        ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
+        #ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
+
+        def formatter(x):
+            delay_b, delay_a = calc_delays(x)
+            delay_a = round(delay_a*1000)
+            delay_b = round(delay_b*1000)
+            return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+
+        ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
 
         #plt.axhline(y=np.sqrt(0.5), color='C0', linestyle='dotted', label = "Analytical ToF SD")
         #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA SD")
@@ -1304,14 +1321,14 @@ def export_tdoa_simulation_response_std(config, export_dir):
         #plt.ylim(0.2, 15)
 
         ax.set_axisbelow(True)
-        ax.set_xlabel("Delay Ratio $\\frac{D_A}{D_B}$")
+        ax.set_xlabel("Delay Ratio $\\ D_B:D_A$")
         ax.set_ylabel("Sample SD [ns]")
 
-        from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 
         ax.yaxis.set_major_locator(MultipleLocator(1.0))
         ax.yaxis.set_minor_locator(MultipleLocator(0.2))
 
+        ax.xaxis.set_major_locator(MultipleLocator(1.0))
 
         # counter = 0
         # for p in ax.patches:
@@ -1576,6 +1593,11 @@ def export_loc_sim(config, export_dir):
         "tdoa": tdoa_m
     }
 
+    titles = {
+        "tof": "ToF",
+        "tdoa": "TDoA"
+    }
+
     for k in exps:
         plt.clf()
         fig, ax = plt.subplots()
@@ -1608,7 +1630,7 @@ def export_loc_sim(config, export_dir):
 
         fig.set_size_inches(4.0, 4.0)
         plt.tight_layout()
-
+        plt.title(titles[k])
         #plt.show()
         plt.savefig("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0)
         plt.close()
@@ -3102,35 +3124,210 @@ def export_base_rx_noise_level_tdoa(config, export_dir):
 
 def export_delay_exp(config, export_dir):
 
-    log = '10158'
+    logs = ['10166', 'exp_delays_10168', 'exp_delays_10172']
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=None, use_bias_correction=True) for log in logs
+    ]
+
+    active_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+    passive_devs = [3, 6, 9]
+
+    # 3,4, 3to4
+    #5, 4 to 5
+    #6 3.5 to 4.5
+    # 7 6to8
+    # 8, 3.5 to 4.5
+    # 9 3.5 to 4.5
+    # 10 3.5 to 4.5
+    # 12 3 to 4
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=d, use_bias_correction=True) for log in logs for d in passive_devs
+    ]
+    passive_df = pd.concat(dfs, ignore_index=True, copy=True)
 
     # TODO add passive_df!!
-    active_df = get_df(log, tdoa_src_dev_number=None, use_bias_correction=True)
     #active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
     #                                                           use_bias_correction=True, skip_to_round=0,
     #                                                           up_to_round=None)
 
-    active_df['delay_b_ms'] = active_df['delay_b'].apply(lambda x : convert_ts_to_sec(x))
-    active_df['delay_a_ms'] = active_df['delay_a'].apply(lambda x : convert_ts_to_sec(x))
+    def prepare_df(df):
+        df['delay_b_ms'] = df['delay_b'].apply(lambda x : np.round(convert_ts_to_sec(x)*1000))
+        df['delay_a_ms'] = df['delay_a'].apply(lambda x : np.round(convert_ts_to_sec(x)*1000))
 
-    active_df['ratio'] = active_df['delay_b_ms'] / active_df['delay_a_ms']
-    active_df['ratio'] = np.log10(active_df['ratio'])
-    active_df['ratio_rounded'] = active_df['ratio'].apply(lambda x : np.round(x * 100))
+        df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
 
-    active_df = active_df[active_df['ratio'].notnull()]
+        df['linear_ratio'] = df['delay_b_ms'] / df['delay_a_ms']
+        df['ratio'] = np.log10(df['linear_ratio'])
+        df['ratio_rounded'] = df['ratio'].apply(lambda x : np.round(x * 100)/100.0)
+        df = df[df['round'] > 50]
+        return df
 
+    active_df = prepare_df(active_df)
+    passive_df = prepare_df(passive_df)
+
+
+    active_df['twr_tof_ss_avg'] = (active_df['twr_tof_ss'] + active_df['twr_tof_ss_reverse']) / 2
 
     #active_df = active_df[active_df['pair'] == "0-3"]
-    active_df_aggr = active_df.groupby('ratio_rounded').agg('std')
-    print(active_df_aggr)
+    #print(active_df['ratio_rounded'].unique())
+    active_df_aggr = active_df.groupby('ratio_rounded').agg(
+        {
+            'twr_tof_ds_err': 'std',
+            'twr_tof_ss_err': 'std',
+            'twr_tof_ss_reverse_err': 'std',
+            'twr_tof_ss_avg': 'std',
+            'linear_ratio': 'mean'
+         }
+    )
 
     #active_df_aggr.plot.scatter(x=active_df_aggr['ratio_rounded'], y='twr_tof_ds_err')
     # TODO: Fit curve?!
-    active_df_aggr.plot.line(y='twr_tof_ds_err')
+    resp_delay_s = 0.002
+    def calc_delays_from_linear(linear_ratio):
+        if linear_ratio >= 1:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * linear_ratio
+        else:
+            delay_a = resp_delay_s * (1.0/linear_ratio)
+            delay_b = resp_delay_s
+        return delay_b, delay_a
+
+    def calc_delays_from_exp(exp_ratio):
+        if exp_ratio >= 0:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * np.power(10, exp_ratio)
+        else:
+            delay_a = resp_delay_s * np.power(10, -exp_ratio)
+            delay_b = resp_delay_s
+        return delay_b, delay_a
+
+
+    # we fit a curve to the TWR measurements
+
+    num_bins = 12
+    colors = ['C0', 'C1', 'C5', 'C3', 'C4', 'C2', 'C6']
+
+    def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
+
+        delays = [calc_delays_from_linear(lr) for lr in linear_ratios]
+        delay_b, delay_a = (np.asarray([x[0] for x in delays]), np.asarray([x[1] for x in delays]))
+
+        return np.sqrt(
+            (0.5 * b_a_std) ** 2
+            + (0.5 * (delay_b / (delay_a + delay_b)) * a_b_std) ** 2
+            + (0.5 * (1 - (delay_b / (delay_a + delay_b))) * a_b_std) ** 2
+        )
+
+    data_xs = active_df_aggr['linear_ratio'].to_numpy()
+    data_xs_ratio = np.round(np.log10(data_xs)*100)/100.0
+    data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
+
+
+    popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
+    pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
+
+    print("Optimal TWR Fit", popt)
+
+    def calc_predicted_tdoa_std(linear_ratios, a_b_std, b_a_std, a_p_std, b_p_std):
+
+        delays = [calc_delays_from_linear(lr) for lr in linear_ratios]
+        delay_b, delay_a = (np.asarray([x[0] for x in delays]), np.asarray([x[1] for x in delays]))
+
+        comb_delay = delay_a+delay_b
+
+        return np.sqrt(
+            (0.5 * b_a_std) ** 2
+            + (0.5 * a_b_std * (delay_b/comb_delay-1)) ** 2
+            + (0.5 * a_b_std * (delay_b/comb_delay)) ** 2
+            + (a_p_std * (1-delay_b/comb_delay)) ** 2
+            + b_p_std ** 2
+            + (a_p_std * (delay_b/comb_delay)) ** 2
+        )
+
+    fig, ax = plt.subplots()
+    plt.plot(data_xs_ratio, pred_twr_ys, label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100), alpha=0.5, linestyle='--')
+
+    def scatter_bins(df, col, color):
+        if num_bins == 0:
+            return
+        xs = []
+        ys = []
+
+        for name, group in df.groupby('ratio_rounded'):
+
+            r = group['ratio_rounded'].to_numpy()[0]
+            l = group[col].to_numpy()
+            ls = np.array_split(l, indices_or_sections=num_bins)
+
+            ys += [np.std(x) for x in ls]
+            xs += [r for x in ls]
+
+        plt.scatter(x=xs, y=ys, c=color, s=2.5)
+
+    scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
+    active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
+    #active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
+    
+    
+    for (i, passive_dev) in enumerate(passive_devs):
+        filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
+
+        aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
+                    {
+                        'tdoa_est_ds': 'std',
+                        'linear_ratio': 'mean'
+                     }
+                )
+
+        data_xs = aggr_filt_df['linear_ratio'].to_numpy()
+        data_xs_ratio = np.round(np.log10(data_xs) * 100) / 100.0
+        data_ys = aggr_filt_df['tdoa_est_ds'].to_numpy()
+
+        def fit(linear_ratios, a_p_std, b_p_std):
+            return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
+
+        passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
+        pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
+
+        print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1])
+
+        scatter_bins(filt_df, 'tdoa_est_ds', colors[i+1])
+
+        plt.plot(data_xs_ratio, pred_tdoa_ys, color=colors[i+1], linestyle='--', alpha=0.5)
+                 #label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
+
+        aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA SD ({})".format(i+1), color=colors[i+1], style='-')
+
+
+    def formatter(x):
+        delay_b, delay_a = calc_delays_from_exp(x)
+        delay_a = round(delay_a * 1000)
+        delay_b = round(delay_b * 1000)
+        return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+
+    ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+    ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    fig.set_size_inches(6.0, 6.0)
+    plt.tight_layout()
+
+    ax.set_xlabel('Delay Ratio')
+    ax.set_ylabel('SD [cm]')
+
+    ax.set_ylim([None, 0.05])
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+
+
+    #ax.set_ylim([0.0, 0.25])
+    #ax.set_xlim([-100.0, +100.0])
 
     plt.show()
-
-
 
 if __name__ == '__main__':
 
@@ -3185,10 +3382,11 @@ if __name__ == '__main__':
         #export_histogram_mean,
         #export_new_twr_variance_based_model_for_tof,
         #export_base_rx_noise_level_tdoa
-        export_delay_exp
         #export_final_twr_variance_based_model,
         #export_final_tdoa_variance_based_model
         #export_new_twr_variance_based_model_for_tof
+        #export_tdoa_simulation_response_std,
+        export_delay_exp,
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
