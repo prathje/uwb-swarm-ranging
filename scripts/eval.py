@@ -3124,8 +3124,9 @@ def export_base_rx_noise_level_tdoa(config, export_dir):
 
 def export_delay_exp(config, export_dir):
 
-    logs = ['10166', 'exp_delays_10168', 'exp_delays_10172']
-
+    #logs = ['10166', 'exp_delays_10168', 'exp_delays_10172']
+    logs = ['exp_delays_10173', 'exp_delays_10174']
+    
     dfs = [
         get_df(log, tdoa_src_dev_number=None, use_bias_correction=True) for log in logs
     ]
@@ -3208,7 +3209,7 @@ def export_delay_exp(config, export_dir):
     # we fit a curve to the TWR measurements
 
     num_bins = 12
-    colors = ['C0', 'C1', 'C5', 'C3', 'C4', 'C2', 'C6']
+    colors = ['C4', 'C1', 'C2', 'C0', 'C3', 'C5', 'C6']
 
     def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
 
@@ -3315,7 +3316,7 @@ def export_delay_exp(config, export_dir):
     fig.set_size_inches(6.0, 6.0)
     plt.tight_layout()
 
-    ax.set_xlabel('Delay Ratio')
+    ax.set_xlabel('Delay Ratio [ms : ms]')
     ax.set_ylabel('SD [cm]')
 
     ax.set_ylim([None, 0.05])
@@ -3327,7 +3328,9 @@ def export_delay_exp(config, export_dir):
     #ax.set_ylim([0.0, 0.25])
     #ax.set_xlim([-100.0, +100.0])
 
-    plt.show()
+    plt.savefig("{}/std_fit.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+
+    plt.close()
 
 if __name__ == '__main__':
 
