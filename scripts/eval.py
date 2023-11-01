@@ -1301,6 +1301,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
         data_df.plot.scatter(x='rdr', y='Simulated ToF SD', ax=ax, c='C4', s=0.5, label='Simulated ToF SD')
         data_df.plot.scatter(x='rdr', y='Simulated TDoA SD', ax=ax, c='C2', s=0.5, label='Simulated TDoA SD')
 
+        print("Mean", data_df['tof_mean'].mean(), data_df['tdoa_ds_mean'].mean())
 
         #ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
 
@@ -1317,7 +1318,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
 
 
-        #plt.ylim(0.2, 1.8)
+        plt.ylim([0.0, 2.0])
         #plt.ylim(0.2, 15)
 
         ax.set_axisbelow(True)
@@ -3124,9 +3125,8 @@ def export_base_rx_noise_level_tdoa(config, export_dir):
 
 def export_delay_exp(config, export_dir):
 
-    #logs = ['10166', 'exp_delays_10168', 'exp_delays_10172']
-    logs = ['exp_delays_10173', 'exp_delays_10174']
-    
+    logs = ['10166', 'exp_delays_10168', 'exp_delays_10172', 'exp_delays_10173', 'exp_delays_10174', 'exp_delays_10196']
+
     dfs = [
         get_df(log, tdoa_src_dev_number=None, use_bias_correction=True) for log in logs
     ]
@@ -3208,8 +3208,8 @@ def export_delay_exp(config, export_dir):
 
     # we fit a curve to the TWR measurements
 
-    num_bins = 12
-    colors = ['C4', 'C1', 'C2', 'C0', 'C3', 'C5', 'C6']
+    num_bins = 10
+    colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
 
     def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
 
@@ -3230,7 +3230,14 @@ def export_delay_exp(config, export_dir):
     popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
     pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
 
+    residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
+    ss_res = np.sum(residuals ** 2)
+    ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+    print("Active R2", np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
     print("Optimal TWR Fit", popt)
+    print("NUM DATAPOINTS overall", len(active_df))
+    print("NUM ratios", len(active_df_aggr))
 
     def calc_predicted_tdoa_std(linear_ratios, a_b_std, b_a_std, a_p_std, b_p_std):
 
@@ -3249,7 +3256,8 @@ def export_delay_exp(config, export_dir):
         )
 
     fig, ax = plt.subplots()
-    plt.plot(data_xs_ratio, pred_twr_ys, label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100), alpha=0.5, linestyle='--')
+    plt.plot(data_xs_ratio, pred_twr_ys, alpha=0.5, linestyle='--', color=colors[0])
+             #label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100))
 
     def scatter_bins(df, col, color):
         if num_bins == 0:
@@ -3295,14 +3303,19 @@ def export_delay_exp(config, export_dir):
         passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
         pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
 
-        print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1])
+        residuals = data_ys - fit(data_xs, *passive_popt)
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+        print("Passive {}".format(i), np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
+        print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1], np.round(popt[0]*100,2), np.round(popt[1]*100,2), np.round(passive_popt[0]*100,2), np.round(passive_popt[1]*100,2))
 
         scatter_bins(filt_df, 'tdoa_est_ds', colors[i+1])
 
         plt.plot(data_xs_ratio, pred_tdoa_ys, color=colors[i+1], linestyle='--', alpha=0.5)
                  #label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
 
-        aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA SD ({})".format(i+1), color=colors[i+1], style='-')
+        aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA $L{}$ SD".format(i+1), color=colors[i+1], style='-')
 
 
     def formatter(x):
@@ -3314,7 +3327,6 @@ def export_delay_exp(config, export_dir):
     ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
     ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
     fig.set_size_inches(6.0, 6.0)
-    plt.tight_layout()
 
     ax.set_xlabel('Delay Ratio [ms : ms]')
     ax.set_ylabel('SD [cm]')
@@ -3323,12 +3335,179 @@ def export_delay_exp(config, export_dir):
 
     plt.grid(color='lightgray', linestyle='dashed')
 
-
+    plt.legend(reverse=True)
+    #plt.tight_layout()
 
     #ax.set_ylim([0.0, 0.25])
     #ax.set_xlim([-100.0, +100.0])
 
-    plt.savefig("{}/std_fit.pdf".format(export_dir), bbox_inches='tight', pad_inches=0)
+    plt.savefig("{}/std_fit.pdf".format(export_dir), bbox_inches='tight')#, pad_inches=0)
+
+    plt.close()
+
+
+def export_ds_cfo_active_std_comparison(config, export_dir):
+    logs = ['10166', 'exp_delays_10168', 'exp_delays_10172', 'exp_delays_10173', 'exp_delays_10174', 'exp_delays_10196']
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=None, use_bias_correction=True) for log in logs
+    ]
+
+    active_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+    def prepare_df(df):
+        df['delay_b_ms'] = df['delay_b'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+        df['delay_a_ms'] = df['delay_a'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+
+        df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
+
+        df['linear_ratio'] = df['delay_b_ms'] / df['delay_a_ms']
+        df['ratio'] = np.log10(df['linear_ratio'])
+        df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x * 100) / 100.0)
+        df = df[df['round'] > 50]
+        return df
+
+    active_df = prepare_df(active_df)
+
+    active_df['twr_tof_ss_avg'] = ((active_df['twr_tof_ss'] + active_df['twr_tof_ss_reverse']) / 2)
+    active_df['twr_tof_ss_avg_err'] = active_df['twr_tof_ss_avg'] - active_df['dist']
+
+    # active_df = active_df[active_df['pair'] == "0-3"]
+    # print(active_df['ratio_rounded'].unique())
+    active_df_aggr = active_df.groupby('ratio_rounded').agg(
+        {
+            'twr_tof_ds_err': 'std',
+            'twr_tof_ss_err': 'std',
+            'twr_tof_ss_reverse_err': 'std',
+            'twr_tof_ss_avg_err': 'std',
+            'linear_ratio': 'mean'
+        }
+    )
+
+    # we fit a curve to the TWR measurements
+    colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
+    resp_delay_s = 0.002
+    def calc_delays_from_exp(exp_ratio):
+        if exp_ratio >= 0:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * np.power(10, exp_ratio)
+        else:
+            delay_a = resp_delay_s * np.power(10, -exp_ratio)
+            delay_b = resp_delay_s
+        return delay_b, delay_a
+    def formatter(x):
+        print(x)
+        delay_b, delay_a = calc_delays_from_exp(x)
+        delay_a = round(delay_a * 1000)
+        delay_b = round(delay_b * 1000)
+        return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+
+
+    fig, ax = plt.subplots()
+    active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="DS-TWR", style='-', color=colors[0])
+    active_df_aggr.plot.line(y='twr_tof_ss_avg_err', ax=ax, label="SS-TWR (AVG)", style='-', color=colors[1])
+    active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax, label="SS-TWR $(B)$", style='-', color=colors[2])
+    active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax, label="SS-TWR $(A)$ ", style='-', color=colors[3])
+
+
+    ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+    ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    fig.set_size_inches(6.0, 4.5)
+
+    ax.set_xlabel('Delay Ratio [ms : ms]')
+    ax.set_ylabel('Mean SD [cm]')
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.legend(reverse=True)
+    # plt.tight_layout()
+
+    #ax.set_xlim([-0.6, +0.6])
+
+    #ax.set_ylim([0.016, 0.036])
+    plt.savefig("{}/std_active.pdf".format(export_dir), bbox_inches='tight')  # , pad_inches=0)
+
+    plt.close()
+
+
+def export_ds_cfo_passive_std_comparison(config, export_dir):
+    logs = ['10166', 'exp_delays_10168', 'exp_delays_10172', 'exp_delays_10173', 'exp_delays_10174', 'exp_delays_10196']
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=3, use_bias_correction=True) for log in logs
+    ]
+
+    passive_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+    def prepare_df(df):
+        df['delay_b_ms'] = df['delay_b'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+        df['delay_a_ms'] = df['delay_a'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+
+        df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
+
+        df['linear_ratio'] = df['delay_b_ms'] / df['delay_a_ms']
+        df['ratio'] = np.log10(df['linear_ratio'])
+        df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x * 100) / 100.0)
+        df = df[df['round'] > 50]
+        return df
+
+    passive_df = prepare_df(passive_df)
+
+    passive_df['twr_tof_ss_avg'] = ((passive_df['twr_tof_ss'] + passive_df['twr_tof_ss_reverse']) / 2)
+    passive_df['twr_tof_ss_avg_err'] = passive_df['twr_tof_ss_avg'] - passive_df['dist']
+
+    # passive_df = passive_df[passive_df['pair'] == "0-3"]
+    # print(passive_df['ratio_rounded'].unique())
+    passive_df_aggr = passive_df.groupby('ratio_rounded').agg(
+        {
+            'tdoa_est_ds': 'std',
+            'tdoa_est_mixed': 'std',
+            'tdoa_est_ss_init': 'std',
+            'linear_ratio': 'mean'
+        }
+    )
+
+    # we fit a curve to the TWR measurements
+    colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
+    resp_delay_s = 0.002
+    def calc_delays_from_exp(exp_ratio):
+        if exp_ratio >= 0:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * np.power(10, exp_ratio)
+        else:
+            delay_a = resp_delay_s * np.power(10, -exp_ratio)
+            delay_b = resp_delay_s
+        return delay_b, delay_a
+    def formatter(x):
+        print(x)
+        delay_b, delay_a = calc_delays_from_exp(x)
+        delay_a = round(delay_a * 1000)
+        delay_b = round(delay_b * 1000)
+        return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+
+
+    fig, ax = plt.subplots()
+    passive_df_aggr.plot.line(y='tdoa_est_ds', ax=ax, label="DS-TDoA", style='-', color=colors[0])
+    passive_df_aggr.plot.line(y='tdoa_est_mixed', ax=ax, label="Mixed TDoA", style='-', color=colors[1])
+    passive_df_aggr.plot.line(y='tdoa_est_ss_init', ax=ax, label="SS-TDoA", style='-', color=colors[2])
+
+
+    ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+    ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    fig.set_size_inches(6.0, 4.5)
+
+    ax.set_xlabel('Delay Ratio [ms : ms]')
+    ax.set_ylabel('Mean SD [cm]')
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.legend(reverse=True)
+    # plt.tight_layout()
+
+    #ax.set_xlim([-0.6, +0.6])
+
+    ax.set_ylim([0.03, 0.08])
+    plt.savefig("{}/std_passive_close.pdf".format(export_dir), bbox_inches='tight')  # , pad_inches=0)
 
     plt.close()
 
@@ -3389,7 +3568,9 @@ if __name__ == '__main__':
         #export_final_tdoa_variance_based_model
         #export_new_twr_variance_based_model_for_tof
         #export_tdoa_simulation_response_std,
-        export_delay_exp,
+        #export_delay_exp,
+        #export_ds_cfo_active_std_comparison,
+        export_ds_cfo_passive_std_comparison
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
