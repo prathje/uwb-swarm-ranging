@@ -55,7 +55,49 @@ LOG_MODULE_REGISTER(main);
     #define SLOTS_PER_EXCHANGE 3
     //#define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
     // we only schedule 3 nodes for now due to long resp delays
-    #define NUM_SLOTS (SLOTS_PER_EXCHANGE)
+
+    int64_t exp_delays[][2] =  {
+        {2, 2},
+        {3, 2},
+        {4, 2},
+        {5, 2},
+        {6, 2},
+        {7, 2},
+        {8, 2},
+        {9, 2},
+        {10, 2},
+        {12, 2},
+        {14, 2},
+        {16, 2},
+        {18, 2},
+        {20, 2},
+        {25, 2},
+        {50, 2},
+        {100, 2},
+        {200, 2},
+        {2, 2},
+        {2, 3},
+        {2, 4},
+        {2, 5},
+        {2, 6},
+        {2, 7},
+        {2, 8},
+        {2, 9},
+        {2, 10},
+        {2, 12},
+        {2, 14},
+        {2, 16},
+        {2, 18},
+        {2, 20},
+        {2, 25},
+        {2, 50},
+        {2, 100},
+        {2, 200}
+    };
+
+
+    #define NUM_SLOTS (SLOTS_PER_EXCHANGE*(sizeof(exp_delays)/sizeof(exp_delays[0])))
+
 #endif
 
 
@@ -199,44 +241,9 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
 
-int64_t exp_delays[][2] =  {
-    {2, 2},
-    {3, 2},
-    {4, 2},
-    {5, 2},
-    {6, 2},
-    {7, 2},
-    {8, 2},
-    {9, 2},
-    {10, 2},
-    {12, 2},
-    {14, 2},
-    {16, 2},
-    {18, 2},
-    {20, 2},
-    {25, 2},
-    {50, 2},
-    {100, 2},
-    {200, 2},
-    {2, 2},
-    {2, 3},
-    {2, 4},
-    {2, 5},
-    {2, 6},
-    {2, 7},
-    {2, 8},
-    {2, 9},
-    {2, 10},
-    {2, 12},
-    {2, 14},
-    {2, 16},
-    {2, 18},
-    {2, 20}
-};
-
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
 
-    uint8_t exp = r % (sizeof(exp_delays)/sizeof(exp_delays[0]));
+    uint8_t exp = (slot/3) % (sizeof(exp_delays)/sizeof(exp_delays[0]));
 
     int64_t delay_b_multiplier = exp_delays[exp][0];
     int64_t delay_a_multiplier = exp_delays[exp][1];
@@ -248,26 +255,17 @@ uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     } else if(m == 1) {
         return UUS_TO_DWT_TS((SLOT_DUR_UUS*delay_a_multiplier)/2);
     } else {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal delay for the last slot
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS*5); // we use a bit more delay to compensate for clock drifts in the last slot
     }
 }
 
 int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
-
-    uint16_t exchange = slot / 3;
     uint8_t m = slot % 3;
 
-    uint16_t init = exchange / (NUM_NODES - 1);
-    uint16_t resp = exchange % (NUM_NODES - 1);
-
-    if(init <= resp) {
-        resp = (resp+1) % NUM_NODES; // we do not want to execute a ranging with ourselves..., actually modulo should not be necessary here anyway?
-    }
-
     if (m == 0 || m == 2) {
-        return init;
+        return 0;
     } else if(m == 1) {
-        return resp;
+        return 1;
     }
 
     return -1;
