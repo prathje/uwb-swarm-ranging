@@ -1180,7 +1180,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
     rx_noise_std = 1.0e-09
 
     rx_noise_stds = {
-        'a-b': rx_noise_std*2,
+        'a-b': rx_noise_std,
         'b-a': rx_noise_std,
         'a-p': rx_noise_std,
         'b-p': rx_noise_std,
@@ -1210,6 +1210,41 @@ def export_tdoa_simulation_response_std(config, export_dir):
             + (0.5 * (delay_b / (delay_a + delay_b)) * a_b_std) ** 2
             + (0.5 * (1 - (delay_b / (delay_a + delay_b))) * a_b_std) ** 2
         )
+
+    def calc_predicted_tof_std_navratil(delay_b, delay_a):
+        a_b_std = get_rx_noise('a', 'b')
+        b_a_std = get_rx_noise('b', 'a')
+
+        if a_b_std != b_a_std:
+            return None # we cannot predict in this model
+
+        sigma = a_b_std
+
+        r = 10.0 # TODO: this value is from the simulation, i.e., the true range
+        tof = r / c_in_air
+
+        t_b1 = delay_b
+        t_a2 = delay_a
+        t_a1 = t_b1 + 2*tof
+        t_b2 = t_a2 + 2*tof
+
+        sigma_mu = (delay_b+delay_a+3*tof)*2
+
+        var = sigma*sigma*(
+                (
+                        2.0*(
+                            t_b2 * t_b2
+                            + t_a1*t_a1
+                            + t_b1*t_b1
+                            + t_a2*t_a2
+                            + t_a1*t_a2
+                            + t_b1*t_b2
+                        )
+                        #+ (4.0 * r * r / (c_in_air * c_in_air))
+                ) / (sigma_mu*sigma_mu)
+               )
+
+        return np.sqrt(var)
 
     def calc_predicted_tdoa_std(delay_b, delay_a):
         a_b_std = get_rx_noise('a', 'b')
@@ -1269,11 +1304,12 @@ def export_tdoa_simulation_response_std(config, export_dir):
                 prediction_rows.append({
                     'rdr': x,
                     'predicted_tof_std': 1.0e09 * calc_predicted_tof_std(delay_b, delay_a),
+                    'predicted_tof_std_navratil': 1.0e09 * calc_predicted_tof_std_navratil(delay_b, delay_a),
                     'predicted_tdoa_std': 1.0e09 * calc_predicted_tdoa_std(delay_b, delay_a)
                 })
             return data_rows, prediction_rows
 
-        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 18, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
+        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 22, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
 
         data_df = pd.DataFrame(data_rows)
         pred_df = pd.DataFrame(prediction_rows)
@@ -1289,14 +1325,16 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         pred_df = pred_df.rename(columns={
             "predicted_tof_std": "Analytical ToF SD",
+            "predicted_tof_std_navratil": "Analytical ToF SD\n[Navrátil and Vejražka]",
             "predicted_tdoa_std": "Analytical TDoA SD"
         })
 
-        plt.clf()
         ax = pred_df.plot.line(x='rdr', y=[
             'Analytical ToF SD',
-            'Analytical TDoA SD'
-        ], alpha=0.5, color=['C4', 'C2'])
+            'Analytical TDoA SD',
+            'Analytical ToF SD\n[Navrátil and Vejražka]',
+            #'Analytical ToF SD [Navrátil and Vejražka]',
+        ], alpha=0.5, color=['C4', 'C2', 'C5'])
 
         data_df.plot.scatter(x='rdr', y='Simulated ToF SD', ax=ax, c='C4', s=0.5, label='Simulated ToF SD')
         data_df.plot.scatter(x='rdr', y='Simulated TDoA SD', ax=ax, c='C2', s=0.5, label='Simulated TDoA SD')
@@ -1307,18 +1345,20 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         def formatter(x):
             delay_b, delay_a = calc_delays(x)
-            delay_a = round(delay_a*1000)
-            delay_b = round(delay_b*1000)
+            delay_a = delay_a*1000
+            delay_b = delay_b*1000
             return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
 
-        ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+        #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
 
         #plt.axhline(y=np.sqrt(0.5), color='C0', linestyle='dotted', label = "Analytical ToF SD")
         #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA SD")
 
 
 
-        plt.ylim([0.0, 2.0])
+
+        #plt.ylim([0.0, 1.0])
+        #plt.xlim([-0.5, 0.5])
         #plt.ylim(0.2, 15)
 
         ax.set_axisbelow(True)
@@ -1347,9 +1387,8 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         plt.grid(color='lightgray', linestyle='dashed')
 
-        plt.legend(loc='lower left')
-        plt.gcf().set_size_inches(6.0, 4.5)
-
+        plt.legend( ncol=2)
+        plt.gcf().set_size_inches(6.0, 5.25)
         ticks = list(ax.get_yticks())
         labels = list(ax.get_yticklabels())
 
@@ -1358,9 +1397,11 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         ticks.append(np.sqrt(0.5))
         ticks.append(np.sqrt(2.5))
+        ticks.append(np.sqrt(0.75))
 
         labels.append(r'$\sqrt{0.5}\sigma$')
         labels.append(r'$\sqrt{2.5}\sigma$')
+        labels.append(r'$0.866\sigma$' "\n" r'$\approx \sqrt{0.75}\sigma$')
 
         ticks.append(np.sqrt(0.375))
         ticks.append(np.sqrt(1.875))
@@ -1380,6 +1421,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
         #plt.show()
 
         plt.close()
+
 
 
 def export_tof_simulation_response_std(config, export_dir):
@@ -3567,10 +3609,10 @@ if __name__ == '__main__':
         #export_final_twr_variance_based_model,
         #export_final_tdoa_variance_based_model
         #export_new_twr_variance_based_model_for_tof
-        #export_tdoa_simulation_response_std,
+        export_tdoa_simulation_response_std,
         #export_delay_exp,
         #export_ds_cfo_active_std_comparison,
-        export_ds_cfo_passive_std_comparison
+        #export_ds_cfo_passive_std_comparison
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
