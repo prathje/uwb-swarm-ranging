@@ -519,6 +519,38 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
 
         return None
 
+    def estimate_noise_std_with_lls_grouped_median(pairs, group_size=20):
+        df = pd.DataFrame.from_records(pairs)
+        if len(df.index) > 0:
+
+            # we build the respectice matrices
+            coeff = np.asarray([[r['tx_ts'], -1] for (i, r) in df.iterrows()])
+            ordinate = df['rx_ts'].to_numpy()
+
+            num_groups = math.ceil(len(df.index)/group_size)
+
+            group_coeff_list = np.array_split(coeff, num_groups)
+            ordinate_list = np.array_split(ordinate, num_groups)
+
+            vars = []
+
+            for g_coeff, g_ord in zip(group_coeff_list, ordinate_list):
+                if len(g_coeff) >= 4:
+                    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(g_coeff, g_ord, rcond=-1)
+                    group_sample_variance = sum_of_squared_residuals / (len(g_coeff) - 2)
+
+                    vars.append(group_sample_variance)
+
+            sample_variance = np.median(np.asarray(vars))
+
+            #print(len(df.index), convert_ts_to_m(np.sqrt(sample_variance)))
+
+            #print(df)
+
+            return convert_ts_to_m(np.sqrt(sample_variance))
+
+        return None
+
     def estimate_noise_std_with_cfo_mean(pairs):
 
         df = pd.DataFrame.from_records(pairs)
@@ -556,7 +588,7 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
                 if receiver != transmitter:
                     if len(rx_df.index) > 0 and len(tx_df.index) > 0:
                         pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
-                        rx_var_est = estimate_noise_std_with_lls_grouped(pairs)
+                        rx_var_est = estimate_noise_std_with_lls_grouped_median(pairs)
 
                         #pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
                         #rx_var_est_cfo = estimate_noise_std_with_cfo_mean(pairs)

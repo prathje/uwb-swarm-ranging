@@ -1401,7 +1401,8 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         labels.append(r'$\sqrt{0.5}\sigma$')
         labels.append(r'$\sqrt{2.5}\sigma$')
-        labels.append(r'$0.866\sigma$' "\n" r'$\approx \sqrt{0.75}\sigma$')
+        labels.append(r'$0.866\sigma$' "\n" r'$\approx \sqrt{0.75}'
+                      r'\sigma$')
 
         ticks.append(np.sqrt(0.375))
         ticks.append(np.sqrt(1.875))
@@ -2856,7 +2857,7 @@ def export_histogram_mean(config, export_dir):
 def get_cached_rx_noise(testbed, run, bias_corrected=True, skip_to_round = 0, up_to_round = None):
     def proc():
         return logs.estimate_rx_noise_using_cfo(testbed, run, bias_corrected=bias_corrected, skip_to_round=skip_to_round, up_to_round=up_to_round)
-    return utility.cached_dt(('get_cached_rx_noise', testbed.name, run, bias_corrected, skip_to_round, up_to_round), proc)
+    return utility.cached_dt(('get_cached_rx_noise_new5', testbed.name, run, bias_corrected, skip_to_round, up_to_round), proc)
 
 
 def export_measured_mean_std_matrix(config, export_dir):
@@ -3600,7 +3601,7 @@ if __name__ == '__main__':
         #export_histograms,
         #export_predicted_ds_twr,
         #export_measured_mean_std_matrix,
-        #export_measured_rx_noise,
+        export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
         #export_histograms,
         #export_histogram_mean,
@@ -3609,7 +3610,7 @@ if __name__ == '__main__':
         #export_final_twr_variance_based_model,
         #export_final_tdoa_variance_based_model
         #export_new_twr_variance_based_model_for_tof
-        export_tdoa_simulation_response_std,
+        #export_tdoa_simulation_response_std,
         #export_delay_exp,
         #export_ds_cfo_active_std_comparison,
         #export_ds_cfo_passive_std_comparison
