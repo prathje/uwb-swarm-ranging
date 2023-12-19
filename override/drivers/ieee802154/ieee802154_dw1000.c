@@ -122,6 +122,7 @@ struct dwt_context {
     uint32_t delayed_tx_short_ts;
 
     uint64_t rx_ts;
+    uint8_t rx_ttcko_rc_phase;
 };
 
 static const struct dwt_hi_cfg dw1000_0_config = {
@@ -471,6 +472,9 @@ static inline void dwt_irq_handle_rx(const struct device *dev, uint32_t sys_stat
         timestamp.second = (ts_fsec / 1000000) / NSEC_PER_SEC;
         timestamp.nanosecond = (ts_fsec / 1000000) % NSEC_PER_SEC;
         net_pkt_set_timestamp(pkt, &timestamp);
+
+        // set phase offset, 7 unsigned 7 bits
+        ctx->rx_ttcko_rc_phase = (rx_inf_reg.rx_ttcko[4] & 0x7FUL);
     }
 
     /* See 4.7.2 Estimating the receive signal power */
@@ -1221,6 +1225,8 @@ uint32_t dwt_fs_to_short_ts(uint64_t fs) {
     return (fs / DWT_TS_TIME_UNITS_FS) >> 8;
 }
 
+
+
 inline uint64_t dwt_estimate_actual_tx_ts(uint32_t planned_short_ts, uint16_t tx_antenna_delay) {
 return (((uint64_t)(planned_short_ts & 0xFFFFFFFEUL)) << 8) + tx_antenna_delay;
 }
@@ -1245,6 +1251,11 @@ uint64_t dwt_plan_delayed_tx(const struct device *dev, uint64_t uus_delay) {
 uint64_t dwt_rx_ts(const struct device *dev) {
     struct dwt_context *ctx = dev->data;
     return ctx->rx_ts;
+}
+
+uint8_t dwt_rx_ttcko_rc_phase(const struct device *dev) {
+    struct dwt_context *ctx = dev->data;
+    return ctx->rx_ttcko_rc_phase;
 }
 
 #define B20_SIGN_EXTEND_TEST (0x00100000UL)

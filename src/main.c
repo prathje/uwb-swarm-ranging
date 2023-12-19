@@ -41,7 +41,7 @@ LOG_MODULE_REGISTER(main);
 #define EXP_NOISE 1
 #define EXP_RESP_DELAYS 5
 
-#define CURRENT_EXPERIMENT EXP_RESP_DELAYS
+#define CURRENT_EXPERIMENT EXP_TWR
 
 #if CURRENT_EXPERIMENT == EXP_TWR
     #define SLOTS_PER_EXCHANGE 3
@@ -556,10 +556,11 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
             int8_t rssi = (int8_t)net_pkt_ieee802154_rssi(pkt);
             int8_t bias_correction = get_range_bias_by_rssi(rssi);
             uint64_t bias_corrected_rx_ts = rx_ts - bias_correction;
+            uint8_t rx_ttcko_rc_phase = dwt_rx_ttcko_rc_phase(ieee802154_dev);
 
             // Log the message!
             {
-                if (history_save_rx(own_number, rx_number, rx_round, rx_slot, rx_ts, carrierintegrator, rssi, bias_correction, bias_corrected_rx_ts)) {
+                if (history_save_rx(own_number, rx_number, rx_round, rx_slot, rx_ts, carrierintegrator, rssi, bias_correction, bias_corrected_rx_ts, rx_ttcko_rc_phase)) {
                     LOG_WRN("Could not save RX to history");
                 }
             }
