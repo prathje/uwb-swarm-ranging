@@ -863,20 +863,23 @@ def compute_phase_dist(comb_phase, measured_dist):
     N0 = np.floor(measured_dist / (c / freq)) - 1
     N1 = N0 + 1
     N2 = N0 + 2
+    N3 = N0 + 3
 
     d0 = (comb_phase_in_radians / (4 * np.pi) + N0) * (c / freq)
     d1 = (comb_phase_in_radians / (4 * np.pi) + N1) * (c / freq)
     d2 = (comb_phase_in_radians / (4 * np.pi) + N2) * (c / freq)
+    d3 = (comb_phase_in_radians / (4 * np.pi) + N3) * (c / freq)
 
 
     diff0 = np.abs(d0 - measured_dist)
     diff1 = np.abs(d1 - measured_dist)
     diff2 = np.abs(d2 - measured_dist)
+    diff3 = np.abs(d2 - measured_dist)
 
-    m = np.min([diff0, diff1, diff2])
+    m = np.min([diff0, diff1, diff2, diff3])
     assert m is None or np.isnan(m) or m <= 0.047
     assert diff0 is None or np.isnan(diff0) or d0 <= measured_dist
-    assert d2 is None or np.isnan(d2) or d2 >= measured_dist
+    assert d3 is None or np.isnan(d3) or d3 >= measured_dist
 
     if m == diff0:
         return d0
@@ -884,6 +887,8 @@ def compute_phase_dist(comb_phase, measured_dist):
         return d1
     elif m == diff2:
         return d2
+    elif m == diff3:
+        return d3
     else:
         return None
 
@@ -942,8 +947,8 @@ if __name__ == '__main__':
     resp_corr = resp_corr-np.floor(resp_corr)
     df['response_rx_phase_corrected'] = np.mod((df['response_rx_phase'] - resp_corr * 128.0 + 128.0), 128.0)
 
-    #df['combined_phase'] = (df['init_rx_phase'] + df['response_rx_phase'])
-    df['combined_phase'] = df['init_rx_phase'] + df['response_rx_phase_corrected']
+    #df['combined_phase'] = (df['init_rx_phase'] - df['response_rx_phase'])
+    df['combined_phase'] = df['init_rx_phase'] - df['response_rx_phase_corrected']
     df['phase_dist'] = apply_phase_dist_to_col(df)
 
 
