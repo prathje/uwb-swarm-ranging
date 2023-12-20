@@ -40,8 +40,9 @@ LOG_MODULE_REGISTER(main);
 #define EXP_TWR 0
 #define EXP_NOISE 1
 #define EXP_RESP_DELAYS 5
+#define EXP_POWER_STATES 10
 
-#define CURRENT_EXPERIMENT EXP_TWR
+#define CURRENT_EXPERIMENT EXP_POWER_STATES
 
 #if CURRENT_EXPERIMENT == EXP_TWR
     #define SLOTS_PER_EXCHANGE 3
@@ -98,6 +99,9 @@ LOG_MODULE_REGISTER(main);
 
     #define NUM_SLOTS (SLOTS_PER_EXCHANGE*(sizeof(exp_delays)/sizeof(exp_delays[0])))
 
+
+#elif CURRENT_EXPERIMENT == EXP_POWER_STATES
+#define NUM_SLOTS 0
 #endif
 
 
@@ -276,18 +280,6 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
 int main(void) {
 
-
-    LOG_INF("Getting node id");
-    int16_t signed_node_id = get_node_number(get_own_node_id());
-
-    if (signed_node_id < 0) {
-        LOG_INF("Node number NOT FOUND! Shutting down :( I am: 0x%04hx", get_own_node_id());
-        return;
-    }
-
-    own_number = signed_node_id;
-    LOG_INF("GOT node id: %hhu", own_number);
-
     //LOG_INF("Testing ...");
     //matrix_test();
     //return;
@@ -302,6 +294,7 @@ int main(void) {
         LOG_ERR("Cannot get ieee 802.15.4 device");
         return false;
     }
+
 
     // prepare msg buffer
     {
@@ -328,8 +321,48 @@ int main(void) {
 
     // we disable the frame filter, otherwise the packets are not received!
     dwt_set_frame_filter(ieee802154_dev, 0, 0);
-
     radio_api = (struct ieee802154_radio_api *)ieee802154_dev->api;
+
+
+    #if CURRENT_EXPERIMENT == EXP_POWER_STATES
+        while(1) {
+
+            k_sleep(K_MSEC(1000));
+            LOG_INF("Start IEEE 802.15.4 device");
+            ret = radio_api->start(ieee802154_dev);
+
+            if(ret) {
+                LOG_ERR("Could not start ieee 802.15.4 device");
+            }
+            k_sleep(K_MSEC(1000));
+//            for(int i = 0; i < 1000; i++) {
+//                k_busy_wait(1000);
+//                k_yield();
+//            }
+            LOG_INF("Stop IEEE 802.15.4 device");
+            radio_api->stop(ieee802154_dev);
+        };
+        return;
+    #endif
+
+
+
+    LOG_INF("Getting node id");
+    int16_t signed_node_id = get_node_number(get_own_node_id());
+
+    if (signed_node_id < 0) {
+        LOG_INF("Node number NOT FOUND! Shutting down :( I am: 0x%04hx", get_own_node_id());
+        return;
+    }
+
+    own_number = signed_node_id;
+    LOG_INF("GOT node id: %hhu", own_number);
+
+
+
+
+
+
 
     LOG_INF("Start IEEE 802.15.4 device");
     ret = radio_api->start(ieee802154_dev);
