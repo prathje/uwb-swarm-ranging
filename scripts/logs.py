@@ -760,10 +760,19 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
                                   (data.get('final_rx', {}) or {}).get(
                                       'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
 
+
+
                     record['round_a'] = round_a
                     record['delay_b'] = delay_b
                     record['delay_a'] = delay_a
                     record['round_b'] = round_b
+
+                    record['init_rx_phase'] = (data.get('init_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+                    record['init_rx_passive_phase'] = (data.get('init_rx_passive', {}) or {}).get('rx_ttcko_rc_phase', None)
+                    record['response_rx_phase'] = (data.get('response_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+                    record['response_rx_passive_phase'] = (data.get('response_passive_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+                    record['final_rx_phase'] = (data.get('final_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+                    record['final_rx_passive_phase'] = (data.get('final_rx_passive', {}) or {}).get('rx_ttcko_rc_phase', None)
 
                     def ci_or_none_to_rd(ci):
                         if ci is None:
@@ -852,7 +861,7 @@ if __name__ == '__main__':
     use_bias_correction = True
     tdoa_src_dev_number = 0
 
-    log = 'exp_tdma_10047' # path resolves to data/trento_b/exp_rx_noise_10041.log
+    log = 'job_11063' # path resolves to data/trento_b/exp_rx_noise_10041.log
 
     def extract():
         it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
@@ -860,7 +869,8 @@ if __name__ == '__main__':
         return pd.DataFrame.from_records(it)
 
 
-    df = cached_dt(('extract_job_tdma_new_2', log, tdoa_src_dev_number, use_bias_correction), extract)
+    df = cached_dt(('extract_job_tdma_new_4', log, tdoa_src_dev_number, use_bias_correction), extract)
+
 
 
     df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
@@ -873,6 +883,34 @@ if __name__ == '__main__':
     df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
     df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
     df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+
+
+
+    pair_df = df[df['pair'] == '0-1']
+
+    pair_df['combined_phase'] = (pair_df['init_rx_phase'] + pair_df['response_rx_phase']) % 128
+
+    pair_df = pair_df.groupby('init_rx_phase').agg(
+        count=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
+        phase=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
+        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
+    )
+
+    import matplotlib
+
+    import matplotlib.pyplot as plt
+
+    pair_df.plot.bar(y='count')
+    plt.show()
+    pair_df.plot.bar(y='twr_tof_ds_err_std')
+
+    plt.show()
+
+    exit()
+
+
+
 
     df.to_csv('raw-logs-{}-out-{}.csv'.format(log, tdoa_src_dev_number))
 
