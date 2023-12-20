@@ -844,6 +844,58 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
 
 
 
+# the combined phase should be pa + pb = (4* pi * dist) * (freq / c) + 4 pi N
+# we choose N such that the distance is close to the measured one
+
+# (pa + pb) - 4 pi N = (4* pi * dist) * (freq / c)
+# ((pa + pb) - 4 pi N) / (4 * pi)  = dist * (freq / c)
+# (((pa + pb) - 4 pi N) / (4 * pi)) * (c / freq) = dist
+# (((pa + pb)/ (4 * pi) - (4 pi N) / (4 * pi)) * (c / freq) = dist
+# (((pa + pb)/ (4 * pi) - N) * (c / freq) = dist
+
+# we compute 3 N and select the one that fits the best, N0 := floor(dist / (c / freq))-1, N1 := N0+1, N2:=N0+2
+import base
+def compute_phase_dist(comb_phase, measured_dist):
+    comb_phase_in_radians = (comb_phase/128.0) * (2*np.pi)
+    c = base.SPEED_OF_LIGHT
+    freq = 6.5 * 1000000000
+
+    N0 = np.floor(measured_dist / (c / freq)) - 1
+    N1 = N0 + 1
+    N2 = N0 + 2
+
+    d0 = (comb_phase_in_radians / (4 * np.pi) + N0) * (c / freq)
+    d1 = (comb_phase_in_radians / (4 * np.pi) + N1) * (c / freq)
+    d2 = (comb_phase_in_radians / (4 * np.pi) + N2) * (c / freq)
+
+
+    diff0 = np.abs(d0 - measured_dist)
+    diff1 = np.abs(d1 - measured_dist)
+    diff2 = np.abs(d2 - measured_dist)
+
+    m = np.min([diff0, diff1, diff2])
+    assert m is None or np.isnan(m) or m <= 0.047
+    assert diff0 is None or np.isnan(diff0) or d0 <= measured_dist
+    assert d2 is None or np.isnan(d2) or d2 >= measured_dist
+
+    if m == diff0:
+        return d0
+    elif m == diff1:
+        return d1
+    elif m == diff2:
+        return d2
+    else:
+        return None
+
+
+def apply_phase_dist_to_col(d):
+    xs = []
+    for (comb_phases, meas_dist) in zip(d['combined_phase'].to_numpy(), d['twr_tof_ds'].to_numpy()):
+        xs.append(compute_phase_dist(comb_phases, meas_dist))
+    return np.asarray(xs)
+
+
+
 if __name__ == '__main__':
     import testbed.trento_b as trento_b
     from utility import cached_dt
@@ -856,7 +908,7 @@ if __name__ == '__main__':
     if 'CACHE_DIR' in config and config['CACHE_DIR']:
         init_cache(config['CACHE_DIR'])
 
-    skip_to_round = 10
+    skip_to_round = 25
     up_to_round = 99999999
     use_bias_correction = True
     tdoa_src_dev_number = 0
@@ -872,9 +924,32 @@ if __name__ == '__main__':
     df = cached_dt(('extract_job_tdma_new_4', log, tdoa_src_dev_number, use_bias_correction), extract)
 
 
+    # the actual response rx phase is skewed by our local drift relative to b
+    # hence we have to adjust the rx phase accordingly
+    # if k_A > k_B, our phase drifts further while executing the protocol,
+    # our own clock would be approximately (k_A/k_B)*Delay_A further
+    # one phase duration is approx 0.046m / c = 0.000000153333333s
+    # speaking of phase measurements, this would be ((k_A/k_B)*Delay_A) / ((c / freq) / c)
+    # so ((k_A/k_B)*Delay_A) * freq
+    #
+    # note that we could also adapt the inital_rx phase and correct accordingly...
+    # we hence have to account for that as well
+    # for now, we reuse the extracted relative drift from the DS-TWR..
+    # note that we are NOT wrapping around! as we might have missed multiple phases...
+    #
+    resp_corr = convert_ts_to_sec(df['round_a']) * base.CHAN5_FREQ
+    # TODO: We might need to put not the rx timestamp into this calculation...
+    resp_corr = resp_corr-np.floor(resp_corr)
+    df['response_rx_phase_corrected'] = np.mod((df['response_rx_phase'] - resp_corr * 128.0 + 128.0), 128.0)
+
+    #df['combined_phase'] = (df['init_rx_phase'] + df['response_rx_phase'])
+    df['combined_phase'] = df['init_rx_phase'] + df['response_rx_phase_corrected']
+    df['phase_dist'] = apply_phase_dist_to_col(df)
+
 
     df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
 
+    df['phase_dist_err'] = df['phase_dist'] - df['dist']
     df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
     df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
     df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
@@ -886,11 +961,17 @@ if __name__ == '__main__':
 
 
 
-    pair_df = df[df['pair'] == '0-1']
+    #pair_df = df[df['pair'] == '0-1']
+    pair_df = df
 
-    pair_df['combined_phase'] = (pair_df['init_rx_phase'] + pair_df['response_rx_phase']) % 128
+    #pair_df['init_rx_phase_5deg'] = np.round(pair_df['init_rx_phase'] / 5)
+    #pair_df['response_rx_phase_5deg'] = np.round(pair_df['response_rx_phase'] / 5)
 
-    pair_df = pair_df.groupby('init_rx_phase').agg(
+
+
+
+
+    pair_df = pair_df.groupby('combined_phase').agg(
         count=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
         phase=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
         twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
@@ -901,23 +982,15 @@ if __name__ == '__main__':
 
     import matplotlib.pyplot as plt
 
-    pair_df.plot.bar(y='count')
-    plt.show()
-    pair_df.plot.bar(y='twr_tof_ds_err_std')
 
-    plt.show()
-
-    exit()
-
-
-
-
-    df.to_csv('raw-logs-{}-out-{}.csv'.format(log, tdoa_src_dev_number))
+#    df.to_csv('raw-logs-{}-out-{}.csv'.format(log, tdoa_src_dev_number))
 
     gb = df.groupby('pair').agg(
         count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
         dist=pd.NamedAgg(column='dist', aggfunc="min"),
         tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
+        phase_dist_err_mean=pd.NamedAgg(column='phase_dist_err', aggfunc="mean"),
+        phase_dist_err_std=pd.NamedAgg(column='phase_dist_err', aggfunc="std"),
         twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
         twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
         twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
@@ -937,6 +1010,10 @@ if __name__ == '__main__':
     )
 
     gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
+
+    gb.plot.bar(y=['twr_tof_ds_err_std', 'phase_dist_err_std'])
+
+    plt.show()
 
 
 
