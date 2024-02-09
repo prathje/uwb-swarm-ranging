@@ -57,8 +57,15 @@ def load_plot_defaults():
     plt.rcParams['axes.axisbelow'] = True
 
 
+import subprocess
+import os
 
-
+def save_and_crop(path, *args, **kwargs):
+    filename, file_extension = os.path.splitext(path)
+    plt.savefig(path, *args, **kwargs)
+    if file_extension == ".pdf":
+        cropped_path = filename + "_cropped" + file_extension
+        subprocess.run(["pdfcrop", path, cropped_path], stdout=subprocess.DEVNULL)
 
 def export_testbed_variance(config, export_dir):
 
