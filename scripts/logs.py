@@ -944,6 +944,7 @@ if __name__ == '__main__':
     #
     resp_corr = convert_ts_to_sec(df['round_a']) * base.CHAN5_FREQ
     # TODO: We might need to put not the rx timestamp into this calculation...
+
     resp_corr = resp_corr-np.floor(resp_corr)
     df['response_rx_phase_corrected'] = np.mod((df['response_rx_phase'] - resp_corr * 128.0 + 128.0), 128.0)
 
@@ -964,6 +965,13 @@ if __name__ == '__main__':
     df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
     df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
 
+
+
+    phase_dist_err = df['phase_dist_err'].to_numpy()
+    twr_tof_ds_err = df['twr_tof_ds_err'].to_numpy()
+
+    print("Phase: {}, DS-TWR: {}".format(np.nanstd(phase_dist_err), np.nanstd(twr_tof_ds_err)))
+    exit()
 
 
     #pair_df = df[df['pair'] == '0-1']
