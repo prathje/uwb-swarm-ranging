@@ -26,8 +26,14 @@ LOG_MODULE_REGISTER(main);
 #define TX_INVOKE_MIN_DELAY_UUS 500
 
 // This delays has to be below 17/2 s, logging of one slot message takes at least 4ms
-// we define the actual round delay later based on the numer of slots
-#define PRE_ROUND_DELAY_UUS_PER_SLOT 6000
+#define PRE_ROUND_DELAY_UUS 1000000
+
+#if PRE_ROUND_DELAY_UUS > 16000000/2
+#error "PRE_ROUND_DELAY_UUS is too large!"
+#endif
+
+// we wait for 20ms per slot after the round is finished to ensure that all logs are flushed before we start the next round
+#define FLUSH_MS_PER_SLOT 20
 
 // We need this delay to ensure that late packets do not destroy our schedule
 // this might happen if the delay is very long, causing different sleep patters
@@ -129,11 +135,7 @@ LOG_MODULE_REGISTER(main);
 #endif
 
 
-#define PRE_ROUND_DELAY_UUS (PRE_ROUND_DELAY_UUS_PER_SLOT*NUM_SLOTS)
 
-#if PRE_ROUND_DELAY_UUS > 17000000/2
-#error "PRE_ROUND_DELAY_UUS is too large!"
-#endif
 
 
 /* ieee802.15.4 device */
@@ -398,7 +400,8 @@ int main(void) {
     }
 
     // Sleep in DWT time to have enough time before the round starts.
-    sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS(INITIAL_DELAY_MS*1000) & DWT_TS_MASK);
+    // TODO: do not sleep right now as we have enough pre round delay atm!
+    //sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS(INITIAL_DELAY_MS*1000) & DWT_TS_MASK);
 
 //    {
 //        uint64_t init_ts = dwt_system_ts(ieee802154_dev);
@@ -429,7 +432,7 @@ int main(void) {
         uint64_t actual_round_start = dwt_system_ts(ieee802154_dev);
 
         if (own_number == schedule_get_tx_node_number(cur_round, next_slot)) {
-            round_start_dwt_ts = (dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS((uint64_t)TX_BUFFER_DELAY_UUS)+UUS_TO_DWT_TS(PRE_ROUND_DELAY_UUS)) & DWT_TS_MASK; // we are the first to transmit in this round!
+            round_start_dwt_ts = (dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS((uint64_t)TX_BUFFER_DELAY_UUS)+UUS_TO_DWT_TS((uint64_t)PRE_ROUND_DELAY_UUS)) & DWT_TS_MASK; // we are the first to transmit in this round!
             k_sem_give(&round_start_sem);
         }
 
@@ -538,7 +541,7 @@ int main(void) {
             next_slot++;
         }
 
-            // we sleep here to the end of the last slot, so that we do not receive a message that overrides anything, especially not our round_started sem!!
+        // we sleep here to the end of the last slot, so that we do not receive a message that overrides anything, especially not our round_started sem!!
         {
             uint64_t cur_ts = dwt_system_ts(ieee802154_dev);
             uint64_t wanted_ts = cur_ts + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS);
@@ -558,21 +561,24 @@ int main(void) {
         cur_round++;
 
         // After every round, we flush all of our logs
-        uint64_t before_flush_ts = dwt_system_ts(ieee802154_dev);
-        size_t log_count = history_count();
+        //uint64_t before_flush_ts = dwt_system_ts(ieee802154_dev);
 
+        int64_t before_flush_ms = k_uptime_get();
+
+        size_t log_count = history_count();
         history_print();
         history_reset();
 
-        uint64_t after_flush_ts = dwt_system_ts(ieee802154_dev);
-        if (after_flush_ts < before_flush_ts) {
-            after_flush_ts += DWT_TS_MASK + 1;
+        int64_t after_flush_ms = k_uptime_get();
+        int64_t wanted_dur_ms = FLUSH_MS_PER_SLOT * NUM_SLOTS;
+        int64_t actual_dur_ms = k_uptime_get() - before_flush_ms;
+
+        LOG_INF("Flushing count %d, wanted ms %lld, actual ms %lld", log_count, wanted_dur_ms, actual_dur_ms);
+        if (actual_dur_ms < wanted_dur_ms) {
+            k_sleep(K_MSEC(wanted_dur_ms - actual_dur_ms));
+        } else {
+            LOG_WRN("WARNING: Flushing took too long!");
         }
-
-        int64_t diff = (int64_t)after_flush_ts - (int64_t)before_flush_ts;
-        int64_t diff_us = DWT_TS_TO_US(diff);
-        LOG_INF("Flushing count %d, duration us %lld", log_count, diff_us);
-
         //sleep_until_dwt_ts(before_flush_us + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
     }
 
