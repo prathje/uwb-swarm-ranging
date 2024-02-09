@@ -1175,9 +1175,9 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
     from sim_tdoa import sim
 
-    limit = 2.0
-    step = 0.05
-    response_delay_exps = np.arange(-limit, limit+step, step)
+    limit = 2.05
+    num = 50
+    response_delay_exps = np.linspace(-limit, limit, num)
 
     xs = response_delay_exps
     num_sim_per_rep = 128
@@ -1193,13 +1193,22 @@ def export_tdoa_simulation_response_std(config, export_dir):
         'b-p': rx_noise_std,
     }
 
-    def calc_delays(x):
+    def calc_delays(x, overall_delay):
         if x >= 0:
-            delay_a = resp_delay_s * np.power(10, x)
-            delay_b = resp_delay_s
+            # x == 0, i.e. a 1:1 ratio!
+            #overall_delay = delay_a + delay_b
+            # also: delay_a = delay_b * np.power(10, x)
+            # hence: delay_a = (overall_delay-delay_a) * np.power(10, x)
+            # hence: delay_a/np.power(10, x) = (overall_delay-delay_a)
+            # hence: delay_a/np.power(10, x)+delay_a = overall_delay
+            # hence: delay_a*(1/np.power(10, x)+1) = overall_delay
+            # hence: delay_a = overall_delay / (1/np.power(10, x)+1)
+
+            delay_a = overall_delay / (1.0 / np.power(10, x) + 1.0)
+            delay_b = overall_delay-delay_a
         else:
-            delay_a = resp_delay_s
-            delay_b = resp_delay_s * np.power(10, -x)
+            delay_b = overall_delay / (1.0 / np.power(10, x) + 1.0)
+            delay_a = overall_delay-delay_b
         return delay_b, delay_a
 
     def get_rx_noise(tx, rx):
@@ -1270,19 +1279,19 @@ def export_tdoa_simulation_response_std(config, export_dir):
             + (a_p_std * (delay_b/comb_delay)) ** 2
         )
 
-    for resp_delay_s in [0.001]:
+    for resp_delay_s in [0.2]:
 
         def proc():
             data_rows = []
             prediction_rows = []
 
             for x in xs:
-                delay_b, delay_a = calc_delays(x)
+                delay_b, delay_a = calc_delays(x, resp_delay_s)
 
                 for i in range(num_reps):
                     res, _ = sim(
                         num_exchanges=num_sim_per_rep,
-                        resp_delay_s=calc_delays(x),
+                        resp_delay_s=calc_delays(x, resp_delay_s),
                         node_drift_std=node_drift_std,
                         rx_noise_std=rx_noise_stds,
                         tx_delay_mean=0.0,
@@ -1316,7 +1325,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
                 })
             return data_rows, prediction_rows
 
-        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 22, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
+        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 24, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
 
         data_df = pd.DataFrame(data_rows)
         pred_df = pd.DataFrame(prediction_rows)
@@ -1350,7 +1359,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
         #ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
 
         def formatter(x):
-            delay_b, delay_a = calc_delays(x)
+            delay_b, delay_a = calc_delays(x, resp_delay_s)
             delay_a = delay_a*1000
             delay_b = delay_b*1000
             return r'${{{}}}:{{{}}}$'.format(round(delay_b), round(delay_a))
@@ -3665,7 +3674,7 @@ if __name__ == '__main__':
         #export_overall_rmse_reduction,
         #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        #export_tdoa_simulation_response_std,
+        export_tdoa_simulation_response_std,
         #export_tdoa_simulation_response_std_scatter,
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
@@ -3679,7 +3688,7 @@ if __name__ == '__main__':
         #export_twr_scatter,
         #export_twr_vs_tdoa_scatter_rssi,
         #export_twr_vs_tdoa_scatter,
-        export_loc_sim,
+        #export_loc_sim,
         #export_twr_scatter_dist
         #export_new_twr_variance_based_model,
         #export_new_twr_variance_based_model

@@ -112,8 +112,7 @@ LOG_MODULE_REGISTER(main);
 
 #elif CURRENT_EXPERIMENT == EXP_PING_PONG
 
-#define PING_PONG_INITIATOR 0
-#define PING_PONG_RESPONDER 1
+#define PING_PONG_INITIATOR 3
 
 // MAKE SURE THAT THE HISTORY IS BIG ENOUGH TO HOLD ALL OF THIS ;)
 #define NUM_SLOTS (1400)
@@ -133,9 +132,6 @@ LOG_MODULE_REGISTER(main);
 #else
 #define log_out log_out
 #endif
-
-
-
 
 
 /* ieee802.15.4 device */
@@ -300,12 +296,19 @@ uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal slot duration
 }
 
-// 
 int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
+
+    uint16_t init = PING_PONG_INITIATOR;
+    uint16_t resp = slot / (NUM_NODES - 1);
+
+    if(init <= resp) {
+        resp = (resp+1) % NUM_NODES; // we do not want to execute a ranging with ourselves..., actually modulo should not be necessary here anyway?
+    }
+
     if (slot % 2 == 0) {
-        return PING_PONG_INITIATOR;
+        return init;
     } else {
-        return PING_PONG_RESPONDER;
+        return resp;
     }
 }
 
