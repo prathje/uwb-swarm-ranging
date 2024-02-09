@@ -1322,29 +1322,28 @@ def export_tdoa_simulation_response_std(config, export_dir):
         pred_df = pd.DataFrame(prediction_rows)
 
         data_df = data_df.rename(columns={
-            "tof_std": "Simulated ToF SD",
-            "tof_ds_std": "ToF DS SD",
-            "tdoa_std": "Simulated TDoA SD",
-            "tdoa_ds_std": "TDoA DS SD",
-            "tdoa_half_cor_std": "TDoA (w/ DC) SD",
-            "tdoa_ds_half_cor_std": "TDoA DS (w/ DC) SD",
+            "tof_std": "Simulated DS-TWR SD",
+            "tof_ds_std": "DS-TWR SD",
+            "tdoa_std": "Simulated DS-TDoA SD",
+            "tdoa_ds_std": "DS-TDoA SD",
+            "tdoa_half_cor_std": "DS-TDoA (w/ DC) SD",
+            "tdoa_ds_half_cor_std": "DS-TDoA DS (w/ DC) SD",
         })
 
         pred_df = pred_df.rename(columns={
-            "predicted_tof_std": "Analytical ToF SD",
-            "predicted_tof_std_navratil": "Analytical ToF SD\n[Navrátil and Vejražka]",
-            "predicted_tdoa_std": "Analytical TDoA SD"
+            "predicted_tof_std": "Analytical DS-TWR SD",
+            "predicted_tof_std_navratil": "Analytical DS-TWR SD\n[Navrátil and Vejražka]",
+            "predicted_tdoa_std": "Analytical DS-TDoA SD"
         })
 
         ax = pred_df.plot.line(x='rdr', y=[
-            'Analytical ToF SD',
-            'Analytical TDoA SD',
-            'Analytical ToF SD\n[Navrátil and Vejražka]',
-            #'Analytical ToF SD [Navrátil and Vejražka]',
+            'Analytical DS-TWR SD',
+            'Analytical DS-TDoA SD',
+            'Analytical DS-TWR SD\n[Navrátil and Vejražka]'
         ], alpha=0.5, color=['C4', 'C2', 'C5'])
 
-        data_df.plot.scatter(x='rdr', y='Simulated ToF SD', ax=ax, c='C4', s=0.5, label='Simulated ToF SD')
-        data_df.plot.scatter(x='rdr', y='Simulated TDoA SD', ax=ax, c='C2', s=0.5, label='Simulated TDoA SD')
+        data_df.plot.scatter(x='rdr', y='Simulated DS-TWR SD', ax=ax, c='C4', s=0.5, label='Simulated DS-TWR SD')
+        data_df.plot.scatter(x='rdr', y='Simulated DS-TDoA SD', ax=ax, c='C2', s=0.5, label='Simulated DS-TDoA SD')
 
         print("Mean", data_df['tof_mean'].mean(), data_df['tdoa_ds_mean'].mean())
 
@@ -1354,9 +1353,9 @@ def export_tdoa_simulation_response_std(config, export_dir):
             delay_b, delay_a = calc_delays(x)
             delay_a = delay_a*1000
             delay_b = delay_b*1000
-            return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+            return r'${{{}}}:{{{}}}$'.format(round(delay_b), round(delay_a))
 
-        #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+        ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
 
         #plt.axhline(y=np.sqrt(0.5), color='C0', linestyle='dotted', label = "Analytical ToF SD")
         #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA SD")
@@ -1394,8 +1393,8 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         plt.grid(color='lightgray', linestyle='dashed')
 
-        plt.legend( ncol=2)
-        plt.gcf().set_size_inches(6.0, 5.25)
+        plt.legend(ncol=2,handletextpad=0.2)
+        plt.gcf().set_size_inches(6.15, 5.25)
         ticks = list(ax.get_yticks())
         labels = list(ax.get_yticklabels())
 
@@ -1616,7 +1615,7 @@ def export_loc_sim(config, export_dir):
     import sim_localization_variance
 
     samples_per_side = 200
-    repetitions = 500
+    repetitions = 1
     meas_std = 0.05
 
     def tof_proc():
@@ -1635,18 +1634,47 @@ def export_loc_sim(config, export_dir):
             repetitions=repetitions
         )
 
+    def gdop_tof_proc():
+        return sim_localization_variance.create_matrix(
+            sim_localization_variance.sim_single_tof_gdop,
+            meas_std=meas_std,
+            samples_per_side=samples_per_side,
+            repetitions=1
+        )
+
+    def gdop_tdoa_proc():
+        return sim_localization_variance.create_matrix(
+            sim_localization_variance.sim_single_tdoa_gdop,
+            meas_std=meas_std*np.sqrt(2.5)/np.sqrt(0.5),
+            samples_per_side=samples_per_side,
+            repetitions=1
+        )
+
     version = 4
-    tof_m = cached(('export_tof_loc_sim', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tof_proc)
-    tdoa_m = cached(('export_tdoa_loc_sim', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tdoa_proc)
+    tof_m = cached(('export_tof_loc_sim_2', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tof_proc)
+    tdoa_m = cached(('export_tdoa_loc_sim_2', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tdoa_proc)
+    tof_gdop = gdop_tof_proc()
+    tdoa_gdop = gdop_tdoa_proc()
+
+    tof_rmse_calc = tof_gdop * meas_std
+    tdoa_rmse_calc = tdoa_gdop * meas_std*np.sqrt(5.0)
 
     exps = {
         "tof": tof_m,
-        "tdoa": tdoa_m
+        "tof_rmse": tof_rmse_calc,
+        "tof_gdop": tof_gdop,
+        "tdoa": tdoa_m,
+        "tdoa_rmse": tdoa_rmse_calc,
+        "tdoa_gdop": tdoa_gdop
     }
 
     titles = {
         "tof": "ToF",
-        "tdoa": "TDoA"
+        "tof_rmse": "ToF $GDOP \\times\sigma_{ToF}$",
+        "tof_gdop": "ToF GDOP",
+        "tdoa": "TDoA",
+        "tdoa_rmse": "TDoA $GDOP \\times\sigma_{TDoA}$",
+        "tdoa_gdop": "TDoA GDOP"
     }
 
     for k in exps:
@@ -1661,8 +1689,15 @@ def export_loc_sim(config, export_dir):
                 'wx',
             )
 
-        cbar = ax.figure.colorbar(im, ax=ax, location='right', format=lambda x, _: "{:.2f}".format(x), shrink=0.68, pad=0.025)
-        cbar.ax.set_ylabel("Localization RMSE [m]", rotation=-90, va="bottom")
+
+        if titles[k].endswith("GDOP"):
+            cbar = ax.figure.colorbar(im, ax=ax, location='right', shrink=0.752, pad=0.025) #format=lambda x, _: "{:4.1f}".format(x),
+            #cbar.set_label("GDOP Factor", rotation=90, va='bottom')
+            cbar.ax.locator_params(nbins=10)
+        else:
+            cbar = ax.figure.colorbar(im, ax=ax, location='right', format=lambda x, _: "{:.2f}".format(x), shrink=0.68,
+                                      pad=0.025)
+            cbar.ax.set_ylabel("Localization RMSE [m]", rotation=-90, va="bottom")
 
         ax.xaxis.set_major_locator(MultipleLocator(2*round(samples_per_side / sim_localization_variance.SIDE_LENGTH)))
         ax.yaxis.set_major_locator(MultipleLocator(2*round(samples_per_side / sim_localization_variance.SIDE_LENGTH)))
@@ -1683,8 +1718,55 @@ def export_loc_sim(config, export_dir):
         plt.tight_layout()
         plt.title(titles[k])
         #plt.show()
-        plt.savefig("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0)
+        #plt.savefig("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0)
+        save_and_crop("{}/export_{}_loc_sim.pdf".format(export_dir, k), bbox_inches = 'tight', pad_inches = 0)
         plt.close()
+
+
+    cef = {
+        'tof_rmse': tof_rmse_calc,
+        'tdoa_rmse': tdoa_rmse_calc
+    }
+
+    for k in cef:
+        m = cef[k]
+        m_opt = m*(np.sqrt(0.75))
+        m_twice = m * 2
+
+        x_limit = np.max([m, m_opt, m_twice])
+        x_start = 0.0 #np.min([m, m_opt, m_twice])
+        xs = np.linspace(x_start, x_limit, num=100)
+
+        ys = [np.nanmean(m < x) for x in xs]
+
+        ys_opt = [np.nanmean(m_opt < x) for x in xs]
+
+        ys_twice = [np.nanmean(m_twice < x) for x in xs]
+
+        plt.clf()
+        fig, ax = plt.subplots()
+
+        ax.yaxis.set_major_formatter(lambda x, pos: round(x*100.0))
+
+        ax.set_xlabel("RMSE [m]")
+        ax.set_ylabel("Percentage [%]")
+
+        plt.xlim(x_start, x_limit)
+        plt.ylim(-0.05, 1.05)
+
+        fig.set_size_inches(4.0, 4.0)
+        plt.tight_layout()
+        plt.title(titles[k])
+        plt.plot(xs, ys, label="$\sigma$")
+        #plt.plot(xs, ys_opt, label="$\sqrt{0.75}\sigma$")
+        plt.plot(xs, ys_twice, label="$2\sigma$")
+        plt.legend()
+        # plt.show()
+        plt.savefig("{}/export_{}_loc_sim_cdf.pdf".format(export_dir, k), bbox_inches='tight', pad_inches=0)
+        plt.close()
+
+
+
 
 
 def get_df(log, tdoa_src_dev_number, use_bias_correction):
@@ -3597,7 +3679,7 @@ if __name__ == '__main__':
         #export_twr_scatter,
         #export_twr_vs_tdoa_scatter_rssi,
         #export_twr_vs_tdoa_scatter,
-        #export_loc_sim,
+        export_loc_sim,
         #export_twr_scatter_dist
         #export_new_twr_variance_based_model,
         #export_new_twr_variance_based_model
@@ -3608,7 +3690,7 @@ if __name__ == '__main__':
         #export_histograms,
         #export_predicted_ds_twr,
         #export_measured_mean_std_matrix,
-        export_measured_rx_noise,
+        #export_measured_rx_noise,
         #export_new_twr_variance_based_model_with_cfo_extractions
         #export_histograms,
         #export_histogram_mean,
