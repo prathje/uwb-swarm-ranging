@@ -25,8 +25,9 @@ LOG_MODULE_REGISTER(main);
 #define TX_BUFFER_DELAY_UUS 1000
 #define TX_INVOKE_MIN_DELAY_UUS 500
 
-// This delays has to be below 17/2 s
-#define PRE_ROUND_DELAY_UUS 4000000
+// This delays has to be below 17/2 s, logging of one slot message takes at least 4ms
+// we define the actual round delay later based on the numer of slots
+#define PRE_ROUND_DELAY_UUS_PER_SLOT 6000
 
 // We need this delay to ensure that late packets do not destroy our schedule
 // this might happen if the delay is very long, causing different sleep patters
@@ -41,8 +42,9 @@ LOG_MODULE_REGISTER(main);
 #define EXP_NOISE 1
 #define EXP_RESP_DELAYS 5
 #define EXP_POWER_STATES 10
+#define EXP_PING_PONG 20
 
-#define CURRENT_EXPERIMENT EXP_TWR
+#define CURRENT_EXPERIMENT EXP_PING_PONG
 
 #if CURRENT_EXPERIMENT == EXP_TWR
     #define SLOTS_PER_EXCHANGE 3
@@ -76,7 +78,6 @@ LOG_MODULE_REGISTER(main);
         {50, 2},
         {100, 2},
         {200, 2},
-        {2, 2},
         {2, 3},
         {2, 4},
         {2, 5},
@@ -102,6 +103,15 @@ LOG_MODULE_REGISTER(main);
 
 #elif CURRENT_EXPERIMENT == EXP_POWER_STATES
 #define NUM_SLOTS 0
+
+#elif CURRENT_EXPERIMENT == EXP_PING_PONG
+
+#define PING_PONG_INITIATOR 0
+#define PING_PONG_RESPONDER 1
+
+// MAKE SURE THAT THE HISTORY IS BIG ENOUGH TO HOLD ALL OF THIS ;)
+#define NUM_SLOTS (1400)
+
 #endif
 
 
@@ -116,6 +126,13 @@ LOG_MODULE_REGISTER(main);
 #define log_out uart_out
 #else
 #define log_out log_out
+#endif
+
+
+#define PRE_ROUND_DELAY_UUS (PRE_ROUND_DELAY_UUS_PER_SLOT*NUM_SLOTS)
+
+#if PRE_ROUND_DELAY_UUS > 17000000/2
+#error "PRE_ROUND_DELAY_UUS is too large!"
 #endif
 
 
@@ -275,6 +292,21 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
     return -1;
 }
 
+#elif CURRENT_EXPERIMENT == EXP_PING_PONG
+
+uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
+    return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal slot duration
+}
+
+// 
+int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
+    if (slot % 2 == 0) {
+        return PING_PONG_INITIATOR;
+    } else {
+        return PING_PONG_RESPONDER;
+    }
+}
+
 #endif
 
 
@@ -304,7 +336,6 @@ int main(void) {
     }
 
     own_number = signed_node_id;
-
 
     // prepare msg buffer
     {
@@ -356,15 +387,7 @@ int main(void) {
     #endif
 
 
-
-
     LOG_INF("GOT node id: %hhu", own_number);
-
-
-
-
-
-
 
     LOG_INF("Start IEEE 802.15.4 device");
     ret = radio_api->start(ieee802154_dev);
@@ -377,25 +400,25 @@ int main(void) {
     // Sleep in DWT time to have enough time before the round starts.
     sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS(INITIAL_DELAY_MS*1000) & DWT_TS_MASK);
 
-    {
-        uint64_t init_ts = dwt_system_ts(ieee802154_dev);
-        uint64_t wanted_ts = init_ts + UUS_TO_DWT_TS(100);
-        sleep_until_dwt_ts(wanted_ts);
-        uint64_t other_ts = dwt_system_ts(ieee802154_dev);
-
-        int64_t diff = (int64_t)other_ts - (int64_t)wanted_ts;
-        int64_t diff_us = DWT_TS_TO_US(diff);
-        LOG_INF("Blocking DWT TS initial  %llu, wanted: %llu, actual: %llu, diff %lld, diff us %lld", init_ts, wanted_ts, other_ts, diff, diff_us);
-
-        init_ts = dwt_system_ts(ieee802154_dev);
-        wanted_ts = init_ts + UUS_TO_DWT_TS(TX_BUFFER_DELAY_UUS);
-        sleep_until_dwt_ts(wanted_ts);
-        other_ts = dwt_system_ts(ieee802154_dev);
-
-        diff = (int64_t)other_ts - (int64_t)wanted_ts;
-        diff_us = DWT_TS_TO_US(diff);
-        LOG_INF("SLEEPING DWT TS initial  %llu, wanted: %llu, actual: %llu, diff %lld, diff us %lld", init_ts, wanted_ts, other_ts, diff, diff_us);
-    }
+//    {
+//        uint64_t init_ts = dwt_system_ts(ieee802154_dev);
+//        uint64_t wanted_ts = init_ts + UUS_TO_DWT_TS(100);
+//        sleep_until_dwt_ts(wanted_ts);
+//        uint64_t other_ts = dwt_system_ts(ieee802154_dev);
+//
+//        int64_t diff = (int64_t)other_ts - (int64_t)wanted_ts;
+//        int64_t diff_us = DWT_TS_TO_US(diff);
+//        LOG_INF("Blocking DWT TS initial  %llu, wanted: %llu, actual: %llu, diff %lld, diff us %lld", init_ts, wanted_ts, other_ts, diff, diff_us);
+//
+//        init_ts = dwt_system_ts(ieee802154_dev);
+//        wanted_ts = init_ts + UUS_TO_DWT_TS(TX_BUFFER_DELAY_UUS);
+//        sleep_until_dwt_ts(wanted_ts);
+//        other_ts = dwt_system_ts(ieee802154_dev);
+//
+//        diff = (int64_t)other_ts - (int64_t)wanted_ts;
+//        diff_us = DWT_TS_TO_US(diff);
+//        LOG_INF("SLEEPING DWT TS initial  %llu, wanted: %llu, actual: %llu, diff %lld, diff us %lld", init_ts, wanted_ts, other_ts, diff, diff_us);
+//    }
 
 
     uint16_t antenna_delay = dwt_antenna_delay_tx(ieee802154_dev);
@@ -535,13 +558,20 @@ int main(void) {
         cur_round++;
 
         // After every round, we flush all of our logs
-        uint64_t before_flush_us = dwt_system_ts(ieee802154_dev);
+        uint64_t before_flush_ts = dwt_system_ts(ieee802154_dev);
         size_t log_count = history_count();
 
         history_print();
         history_reset();
 
-        LOG_INF("Flushing before us, after us: %llu, %llu, count %d", DWT_TS_TO_US(before_flush_us), DWT_TS_TO_US(dwt_system_ts(ieee802154_dev)), log_count);
+        uint64_t after_flush_ts = dwt_system_ts(ieee802154_dev);
+        if (after_flush_ts < before_flush_ts) {
+            after_flush_ts += DWT_TS_MASK + 1;
+        }
+
+        int64_t diff = (int64_t)after_flush_ts - (int64_t)before_flush_ts;
+        int64_t diff_us = DWT_TS_TO_US(diff);
+        LOG_INF("Flushing count %d, duration us %lld", log_count, diff_us);
 
         //sleep_until_dwt_ts(before_flush_us + UUS_TO_DWT_TS(POST_ROUND_DELAY_UUS));
     }
