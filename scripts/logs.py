@@ -607,92 +607,193 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
     df = pd.DataFrame(rows_list)
     return df
 
-def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, experiment='RESP_DELAYS'):
 
-    def extract_data_slots(rx_df, tx_df, r, a, b, passive, init_slot, response_slot, final_slot):
-        # we extract data for initiator a and responder b (numbers not device names!)
+def extract_data_slots(rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot, final_slot):
+    # we extract data for initiator a and responder b (numbers not device names!)
 
-        def first_or_none(l):
-            return next(iter(l), None)
+    def first_or_none(l):
+        return next(iter(l), None)
 
-        init_tx = first_or_none(
-            tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == init_slot) & (tx_df["own_number"] == a)].to_dict(
-                orient='records'))
-        init_rx = first_or_none(
-            rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (rx_df["own_number"] == b)].to_dict(
-                orient='records'))
-        init_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (
-                    rx_df["own_number"] == passive)].to_dict(orient='records'))
+    init_tx = first_or_none(
+        tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == init_slot) & (tx_df["own_number"] == a)].to_dict(
+            orient='records'))
+    init_rx = first_or_none(
+        rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (rx_df["own_number"] == b)].to_dict(
+            orient='records'))
+    init_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == init_slot) & (
+                rx_df["own_number"] == tdoa_src_dev_number)].to_dict(orient='records'))
 
-        response_tx = first_or_none(
-            tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == response_slot) & (tx_df["own_number"] == b)].to_dict(
-                orient='records'))
-        response_rx = first_or_none(
-            rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == response_slot) & (rx_df["own_number"] == a)].to_dict(
-                orient='records'))
-        response_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == response_slot) & (
-                    rx_df["own_number"] == passive)].to_dict(orient='records'))
+    response_tx = first_or_none(
+        tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == response_slot) & (tx_df["own_number"] == b)].to_dict(
+            orient='records'))
+    response_rx = first_or_none(
+        rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == response_slot) & (rx_df["own_number"] == a)].to_dict(
+            orient='records'))
+    response_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == response_slot) & (
+                rx_df["own_number"] == tdoa_src_dev_number)].to_dict(orient='records'))
 
-        final_tx = first_or_none(
-            tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == final_slot) & (tx_df["own_number"] == a)].to_dict(
-                orient='records'))
-        final_rx = first_or_none(
-            rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == final_slot) & (rx_df["own_number"] == b)].to_dict(
-                orient='records'))
-        final_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == final_slot) & (
-                    rx_df["own_number"] == passive)].to_dict(orient='records'))
+    final_tx = first_or_none(
+        tx_df[(tx_df["tx_round"] == r) & (tx_df["tx_slot"] == final_slot) & (tx_df["own_number"] == a)].to_dict(
+            orient='records'))
+    final_rx = first_or_none(
+        rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == final_slot) & (rx_df["own_number"] == b)].to_dict(
+            orient='records'))
+    final_rx_passive = first_or_none(rx_df[(rx_df["rx_round"] == r) & (rx_df["rx_slot"] == final_slot) & (
+                rx_df["own_number"] == tdoa_src_dev_number)].to_dict(orient='records'))
 
-        assert init_rx is None or init_rx['rx_number'] == a
-        assert init_rx_passive is None or init_rx_passive['rx_number'] == a
+    assert init_rx is None or init_rx['rx_number'] == a
+    assert init_rx_passive is None or init_rx_passive['rx_number'] == a
 
-        assert response_rx is None or response_rx['rx_number'] == b
-        assert response_rx_passive is None or response_rx_passive['rx_number'] == b
+    assert response_rx is None or response_rx['rx_number'] == b
+    assert response_rx_passive is None or response_rx_passive['rx_number'] == b
 
-        assert final_rx is None or final_rx['rx_number'] == a
-        assert final_rx_passive is None or final_rx_passive['rx_number'] == a
+    assert final_rx is None or final_rx['rx_number'] == a
+    assert final_rx_passive is None or final_rx_passive['rx_number'] == a
 
-        ret = {
-            'init_tx': init_tx,
-            'init_rx': init_rx,
-            'init_rx_passive': init_rx_passive,
-            'response_tx': response_tx,
-            'response_rx': response_rx,
-            'response_rx_passive': response_rx_passive,
-            'final_tx': final_tx,
-            'final_rx': final_rx,
-            'final_rx_passive': final_rx_passive
-        }
+    ret = {
+        'init_tx': init_tx,
+        'init_rx': init_rx,
+        'init_rx_passive': init_rx_passive,
+        'response_tx': response_tx,
+        'response_rx': response_rx,
+        'response_rx_passive': response_rx_passive,
+        'final_tx': final_tx,
+        'final_rx': final_rx,
+        'final_rx_passive': final_rx_passive
+    }
 
-        return ret
+    return ret
 
-    def extract_data(rx_df, tx_df, r, a, b, passive, exchange=None):
-        assert exchange is None #we do not support multiple exchange at the moment
 
-        # we extract data for initiator a and responder b (numbers not device names!)
 
-        init_slot = a * (len(testbed.devs) - 1) * 3 + b * 3
 
-        if a <= b:
-            init_slot -= 3  # we save one exchange because a does not exchange it with itself...
+def extract_record(testbed, rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=True):
 
-        response_slot = init_slot + 1
-        final_slot = response_slot + 1
+    data = extract_data_slots(rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot, final_slot)
 
-        return extract_data_slots(rx_df, tx_df, r, a, b, passive, init_slot, response_slot, final_slot)
-
-    def extract_data_resp(rx_df, tx_df, r, a, b, passive, exchange=0):
-        # we extract data for initiator a and responder b (numbers not device names!)
-
-        init_slot = exchange*3
-        response_slot = init_slot + 1
-        final_slot = response_slot + 1
-
-        return extract_data_slots(rx_df, tx_df, r, a, b, passive, init_slot, response_slot, final_slot)
+    da = testbed.devs[a]
+    db = testbed.devs[b]
 
     if tdoa_src_dev_number is not None:
         tdoa_src_dev = testbed.devs[tdoa_src_dev_number]
     else:
         tdoa_src_dev = None
+
+
+    record = {}
+
+    record['round'] = int(r)
+    record['initiator'] = a
+    record['responder'] = b
+    record['pair'] = "{}-{}".format(a, b)
+    record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
+    record['tdoa'] = None
+
+    # we check if data contains any None values, if so, we drop this exchange
+    def dur(start, end):
+        if None in [start, end]:
+            return None
+
+        if end <= start:
+            end += 0xFFFFFFFFFF + 1  # we handle overflow here
+
+        return end - start
+
+    round_a = dur((data.get('init_tx', {}) or {}).get('tx_ts', None),
+                  (data.get('response_rx', {}) or {}).get(
+                      'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+    delay_b = dur(
+        (data.get('init_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
+        (data.get('response_tx', {}) or {}).get('tx_ts', None))
+    delay_a = dur(
+        (data.get('response_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts',
+                                                None), (data.get('final_tx', {}) or {}).get('tx_ts', None))
+    round_b = dur((data.get('response_tx', {}) or {}).get('tx_ts', None),
+                  (data.get('final_rx', {}) or {}).get(
+                      'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+
+    record['round_a'] = round_a
+    record['delay_b'] = delay_b
+    record['delay_a'] = delay_a
+    record['round_b'] = round_b
+
+    record['init_rx_phase'] = (data.get('init_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+    record['init_rx_passive_phase'] = (data.get('init_rx_passive', {}) or {}).get('rx_ttcko_rc_phase', None)
+    record['response_rx_phase'] = (data.get('response_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+    record['response_rx_passive_phase'] = (data.get('response_passive_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+    record['final_rx_phase'] = (data.get('final_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
+    record['final_rx_passive_phase'] = (data.get('final_rx_passive', {}) or {}).get('rx_ttcko_rc_phase', None)
+
+    def ci_or_none_to_rd(ci):
+        if ci is None:
+            return None
+        else:
+            return ci_to_rd(ci)
+
+    record['init_rd_cfo'] = ci_or_none_to_rd((data.get('init_rx', {}) or {}).get('ci', None))
+    record['response_rd_cfo'] = ci_or_none_to_rd((data.get('response_rx', {}) or {}).get('ci', None))
+    record['final_rd_cfo'] = ci_or_none_to_rd((data.get('final_rx', {}) or {}).get('ci', None))
+
+    if None not in [round_a, delay_b, delay_a, round_b]:
+        relative_drift = float(round_a + delay_a) / float(round_b + delay_b)
+        twr_tof = convert_ts_to_m((round_a - relative_drift * delay_b) * 0.5)
+
+        record['relative_drift'] = relative_drift
+        record['twr_tof_ds'] = twr_tof
+
+        record['twr_tof_ss'] = convert_ts_to_m((round_a - record['response_rd_cfo'] * delay_b) * 0.5)
+        record['twr_tof_ss_reverse'] = convert_ts_to_m((round_b - record['final_rd_cfo'] * delay_a) * 0.5)
+
+        if tdoa_src_dev:
+
+            record['tdoa'] = get_dist(testbed.dev_positions[da],
+                                      testbed.dev_positions[tdoa_src_dev]) - get_dist(
+                testbed.dev_positions[tdoa_src_dev], testbed.dev_positions[db])
+            record['tdoa_device'] = tdoa_src_dev_number
+
+            passive_m_a = dur((data.get('init_rx_passive', {}) or {}).get(
+                'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
+                (data.get('response_rx_passive', {}) or {}).get(
+                    'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+            passive_m_b = dur((data.get('response_rx_passive', {}) or {}).get(
+                'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
+                (data.get('final_rx_passive', {}) or {}).get(
+                    'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+
+            if None not in [passive_m_a, passive_m_b]:
+                record['passive_m_a'] = passive_m_a
+                record['passive_m_b'] = passive_m_b
+
+                record['tdoa_a_relative_drift_ds'] = (record['passive_m_a'] + record['passive_m_b']) / (
+                        record['round_a'] + record['delay_a'])
+                record['tdoa_b_relative_drift_ds'] = (record['passive_m_a'] + record['passive_m_b']) / (
+                        record['round_b'] + record['delay_b'])
+
+                record['tdoa_init_rd_cfo'] = ci_to_rd((data.get('init_rx_passive', {}) or {}).get('ci'))
+                record['tdoa_response_rd_cfo'] = ci_to_rd(
+                    (data.get('response_rx_passive', {}) or {}).get('ci'))
+                record['tdoa_final_rd_cfo'] = ci_to_rd((data.get('final_rx_passive', {}) or {}).get('ci'))
+
+                record['tdoa_est_ds'] = convert_ts_to_m(
+                    0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record[
+                        'tdoa_b_relative_drift_ds'] * delay_b - passive_m_a)
+                record['tdoa_est_ss_init'] = convert_ts_to_m(
+                    0.5 * record['tdoa_init_rd_cfo'] * round_a + 0.5 * record[
+                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                record['tdoa_est_ss_final'] = convert_ts_to_m(
+                    0.5 * record['tdoa_final_rd_cfo'] * round_a + 0.5 * record[
+                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                record['tdoa_est_ss_both'] = convert_ts_to_m(
+                    0.25 * record['tdoa_init_rd_cfo'] * round_a + 0.25 * record[
+                        'tdoa_final_rd_cfo'] * round_a + 0.5 * record[
+                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+                record['tdoa_est_mixed'] = convert_ts_to_m(
+                    0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record[
+                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
+    return record
+
+
+def gen_tdma_twr_resp_delays_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True):
 
     for (r, rx_events, tx_events) in gen_round_events(testbed, run):
         rx_df = pd.DataFrame.from_records(rx_events)
@@ -703,21 +804,9 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
         if len(rx_events) == 0 or len(tx_events) == 0:
             continue
 
-        #for exchange in range(32):
-        #    for (a, da) in enumerate(testbed.devs[:1]):
-        #    for (b, db) in enumerate(testbed.devs[:2]):
-
-
-        if experiment == 'RESP_DELAYS':
-            exchanges = range(32)
-            init_devs = testbed.devs[:1]
-            resp_devs = testbed.devs[1:2]
-            extr_func = extract_data_resp
-        else: # the normal experiment
-            exchanges = [None]
-            init_devs = testbed.devs
-            resp_devs = testbed.devs
-            extr_func = extract_data
+        exchanges = range(32)
+        init_devs = testbed.devs[:1]
+        resp_devs = testbed.devs[1:2]
 
         for exchange in exchanges:
             for (a, da) in enumerate(init_devs):
@@ -726,123 +815,125 @@ def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True
                     if a == b:
                         continue
 
-                    record = {}
+                    # we extract data for initiator a and responder b (numbers not device names!)
+                    init_slot = exchange * 3
+                    response_slot = init_slot + 1
+                    final_slot = response_slot + 1
+                    rec = extract_record(testbed, rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
+                    #print(rec)
+                    yield rec
 
-                    record['round'] = int(r)
-                    record['initiator'] = a
-                    record['responder'] = b
-                    record['pair'] = "{}-{}".format(a, b)
-                    record['dist'] = get_dist(testbed.dev_positions[da], testbed.dev_positions[db])
-                    record['tdoa'] = None
+def gen_tdma_twr_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, experiment='RESP_DELAYS'):
 
-                    data = extr_func(rx_df, tx_df, r, a, b, tdoa_src_dev_number, exchange=exchange)
+    for (r, rx_events, tx_events) in gen_round_events(testbed, run):
+        rx_df = pd.DataFrame.from_records(rx_events)
+        tx_df = pd.DataFrame.from_records(tx_events)
 
-                    # we check if data contains any None values, if so, we drop this exchange
-                    def dur(start, end):
-                        if None in [start, end]:
-                            return None
+        print(r, len(rx_events), len(tx_events))
 
-                        if end <= start:
-                            end += 0xFFFFFFFFFF + 1  # we handle overflow here
-
-                        return end - start
-
-                    round_a = dur((data.get('init_tx', {}) or {}).get('tx_ts', None),
-                                  (data.get('response_rx', {}) or {}).get(
-                                      'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
-                    delay_b = dur(
-                        (data.get('init_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
-                        (data.get('response_tx', {}) or {}).get('tx_ts', None))
-                    delay_a = dur(
-                        (data.get('response_rx', {}) or {}).get('bias_corrected_rx_ts' if bias_corrected else 'rx_ts',
-                                                                None), (data.get('final_tx', {}) or {}).get('tx_ts', None))
-                    round_b = dur((data.get('response_tx', {}) or {}).get('tx_ts', None),
-                                  (data.get('final_rx', {}) or {}).get(
-                                      'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
+        if len(rx_events) == 0 or len(tx_events) == 0:
+            continue
 
 
+        for (a, da) in enumerate(testbed.devs):
+            for (b, db) in enumerate(testbed.devs):
 
-                    record['round_a'] = round_a
-                    record['delay_b'] = delay_b
-                    record['delay_a'] = delay_a
-                    record['round_b'] = round_b
+                if a == b:
+                    continue
 
-                    record['init_rx_phase'] = (data.get('init_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
-                    record['init_rx_passive_phase'] = (data.get('init_rx_passive', {}) or {}).get('rx_ttcko_rc_phase', None)
-                    record['response_rx_phase'] = (data.get('response_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
-                    record['response_rx_passive_phase'] = (data.get('response_passive_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
-                    record['final_rx_phase'] = (data.get('final_rx', {}) or {}).get('rx_ttcko_rc_phase', None)
-                    record['final_rx_passive_phase'] = (data.get('final_rx_passive', {}) or {}).get('rx_ttcko_rc_phase', None)
+                # we extract data for initiator a and responder b (numbers not device names!)
+                init_slot = a * (len(testbed.devs) - 1) * 3 + b * 3
 
-                    def ci_or_none_to_rd(ci):
-                        if ci is None:
-                            return None
-                        else:
-                            return ci_to_rd(ci)
+                if a <= b:
+                    init_slot -= 3  # we save one exchange because a does not exchange it with itself...
 
-                    record['init_rd_cfo'] = ci_or_none_to_rd((data.get('init_rx', {}) or {}).get('ci', None))
-                    record['response_rd_cfo'] = ci_or_none_to_rd((data.get('response_rx', {}) or {}).get('ci', None))
-                    record['final_rd_cfo'] = ci_or_none_to_rd((data.get('final_rx', {}) or {}).get('ci', None))
+                response_slot = init_slot + 1
+                final_slot = response_slot + 1
 
-                    if None not in [round_a, delay_b, delay_a, round_b]:
-                        relative_drift = float(round_a + delay_a) / float(round_b + delay_b)
-                        twr_tof = convert_ts_to_m((round_a - relative_drift * delay_b) * 0.5)
-
-                        record['relative_drift'] = relative_drift
-                        record['twr_tof_ds'] = twr_tof
-
-                        record['twr_tof_ss'] = convert_ts_to_m((round_a - record['response_rd_cfo'] * delay_b) * 0.5)
-                        record['twr_tof_ss_reverse'] = convert_ts_to_m((round_b - record['final_rd_cfo'] * delay_a) * 0.5)
-
-                        if tdoa_src_dev:
-
-                            record['tdoa'] = get_dist(testbed.dev_positions[da],
-                                                      testbed.dev_positions[tdoa_src_dev]) - get_dist(
-                                testbed.dev_positions[tdoa_src_dev], testbed.dev_positions[db])
-                            record['tdoa_device'] = tdoa_src_dev_number
-
-                            passive_m_a = dur((data.get('init_rx_passive', {}) or {}).get(
-                                'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
-                                              (data.get('response_rx_passive', {}) or {}).get(
-                                                  'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
-                            passive_m_b = dur((data.get('response_rx_passive', {}) or {}).get(
-                                'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None),
-                                              (data.get('final_rx_passive', {}) or {}).get(
-                                                  'bias_corrected_rx_ts' if bias_corrected else 'rx_ts', None))
-
-                            if None not in [passive_m_a, passive_m_b]:
-                                record['passive_m_a'] = passive_m_a
-                                record['passive_m_b'] = passive_m_b
-
-                                record['tdoa_a_relative_drift_ds'] = (record['passive_m_a'] + record['passive_m_b']) / (
-                                            record['round_a'] + record['delay_a'])
-                                record['tdoa_b_relative_drift_ds'] = (record['passive_m_a'] + record['passive_m_b']) / (
-                                            record['round_b'] + record['delay_b'])
-
-                                record['tdoa_init_rd_cfo'] = ci_to_rd((data.get('init_rx_passive', {}) or {}).get('ci'))
-                                record['tdoa_response_rd_cfo'] = ci_to_rd(
-                                    (data.get('response_rx_passive', {}) or {}).get('ci'))
-                                record['tdoa_final_rd_cfo'] = ci_to_rd((data.get('final_rx_passive', {}) or {}).get('ci'))
-
-                                record['tdoa_est_ds'] = convert_ts_to_m(
-                                    0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record[
-                                        'tdoa_b_relative_drift_ds'] * delay_b - passive_m_a)
-                                record['tdoa_est_ss_init'] = convert_ts_to_m(
-                                    0.5 * record['tdoa_init_rd_cfo'] * round_a + 0.5 * record[
-                                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                                record['tdoa_est_ss_final'] = convert_ts_to_m(
-                                    0.5 * record['tdoa_final_rd_cfo'] * round_a + 0.5 * record[
-                                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                                record['tdoa_est_ss_both'] = convert_ts_to_m(
-                                    0.25 * record['tdoa_init_rd_cfo'] * round_a + 0.25 * record[
-                                        'tdoa_final_rd_cfo'] * round_a + 0.5 * record[
-                                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                                record['tdoa_est_mixed'] = convert_ts_to_m(
-                                    0.5 * record['tdoa_a_relative_drift_ds'] * round_a + 0.5 * record[
-                                        'tdoa_response_rd_cfo'] * delay_b - passive_m_a)
-                    yield record
+                yield extract_record(testbed, rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
 
 
+def gen_ping_pong_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, max_slot_dur=None):
+
+    ping_pong_initiator_number = 3
+    ping_pong_slots = 200+1
+
+    if max_slot_dur is None:
+        max_slot_dur = ping_pong_slots - 1
+
+    assert max_slot_dur % 2 == 0
+
+    #ping_pong_initiator = testbed.devs[ping_pong_initiator_number]
+
+    for (r, rx_events, tx_events) in gen_round_events(testbed, run):
+        rx_df = pd.DataFrame.from_records(rx_events)
+        tx_df = pd.DataFrame.from_records(tx_events)
+
+        print(r, len(rx_events), len(tx_events))
+
+        if len(rx_events) == 0 or len(tx_events) == 0:
+            continue
+
+        for (b, db) in enumerate(testbed.devs):
+
+            if ping_pong_initiator_number == b:
+                continue
+
+            multiplier = b if b < ping_pong_initiator_number else b-1
+
+            start_slot = ping_pong_slots * multiplier
+            end_slot = start_slot + ping_pong_slots - 1
+
+            if start_slot % 2 == 1:
+                # due to a wrong modulo calculation, we have to correct the start_slot in this case!
+                # we simply reduce the start and end_slot by 1
+                start_slot -= 1
+                end_slot -= 1
+
+            for init_slot in range(start_slot, end_slot, max_slot_dur):
+                final_slot = init_slot + max_slot_dur
+
+                if final_slot > end_slot:
+                    break
+
+                for response_slot in range(init_slot+1, final_slot, 2):
+                    #print(b, multiplier, init_slot, response_slot, final_slot)
+                    rec = extract_record(testbed, rx_df, tx_df, r, ping_pong_initiator_number, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
+                    #print(rec['relative_drift'])
+                    yield rec
+
+
+def gen_new_delay_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, initiator_id=None, responder_id=None, num_exchanges=100):
+    slot_offset = 1 # we have one initiator message at the beginning
+    for (r, rx_events, tx_events) in gen_round_events(testbed, run):
+        rx_df = pd.DataFrame.from_records(rx_events)
+        tx_df = pd.DataFrame.from_records(tx_events)
+
+        print(r, len(rx_events), len(tx_events))
+
+        if len(rx_events) == 0 or len(tx_events) == 0:
+            continue
+
+        exchanges = range(num_exchanges)
+
+        for exchange in exchanges:
+            a = initiator_id
+            b = responder_id
+
+
+            # we extract data for initiator a and responder b (numbers not device names!)
+            init_slot = exchange * 3 + slot_offset
+            response_slot = init_slot + 1
+            final_slot = response_slot + 1
+            rec = extract_record(testbed, rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot,
+                                 final_slot, bias_corrected=bias_corrected)
+            yield rec
+
+def extract_tdma_twr(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, experiment='RESP_DELAYS'):
+    if experiment == 'RESP_DELAYS':
+        yield from gen_tdma_twr_resp_delays_records(testbed, run, tdoa_src_dev_number, bias_corrected)
+    else:
+        yield from gen_tdma_twr_records(testbed, run, tdoa_src_dev_number, bias_corrected)
 
 # the combined phase should be pa + pb = (4* pi * dist) * (freq / c) + 4 pi N
 # we choose N such that the distance is close to the measured one
@@ -902,131 +993,139 @@ def apply_phase_dist_to_col(d):
 
 
 if __name__ == '__main__':
-    import testbed.trento_b as trento_b
-    from utility import cached_dt
-    from utility import init_cache, load_env_config, set_global_cache_prefix_by_config
+    import testbed.trento_a as trento_a
 
-    config = load_env_config()
-
-    assert 'EXPORT_DIR' in config and config['EXPORT_DIR']
-
-    if 'CACHE_DIR' in config and config['CACHE_DIR']:
-        init_cache(config['CACHE_DIR'])
-
-    skip_to_round = 25
-    up_to_round = 99999999
-    use_bias_correction = True
-    tdoa_src_dev_number = 0
-
-    log = 'job_11063' # path resolves to data/trento_b/exp_rx_noise_10041.log
-
-    def extract():
-        it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
-                              bias_corrected=use_bias_correction, experiment='TWR')
-        return pd.DataFrame.from_records(it)
-
-
-    df = cached_dt(('extract_job_tdma_new_4', log, tdoa_src_dev_number, use_bias_correction), extract)
-
-
-    # the actual response rx phase is skewed by our local drift relative to b
-    # hence we have to adjust the rx phase accordingly
-    # if k_A > k_B, our phase drifts further while executing the protocol,
-    # our own clock would be approximately (k_A/k_B)*Delay_A further
-    # one phase duration is approx 0.046m / c = 0.000000153333333s
-    # speaking of phase measurements, this would be ((k_A/k_B)*Delay_A) / ((c / freq) / c)
-    # so ((k_A/k_B)*Delay_A) * freq
-    #
-    # note that we could also adapt the inital_rx phase and correct accordingly...
-    # we hence have to account for that as well
-    # for now, we reuse the extracted relative drift from the DS-TWR..
-    # note that we are NOT wrapping around! as we might have missed multiple phases...
-    #
-    resp_corr = convert_ts_to_sec(df['round_a']) * base.CHAN5_FREQ
-    # TODO: We might need to put not the rx timestamp into this calculation...
-
-    resp_corr = resp_corr-np.floor(resp_corr)
-    df['response_rx_phase_corrected'] = np.mod((df['response_rx_phase'] - resp_corr * 128.0 + 128.0), 128.0)
-
-    #df['combined_phase'] = (df['init_rx_phase'] - df['response_rx_phase'])
-    df['combined_phase'] = df['init_rx_phase'] - df['response_rx_phase_corrected']
-    df['phase_dist'] = apply_phase_dist_to_col(df)
-
-
-    df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
-
-    df['phase_dist_err'] = df['phase_dist'] - df['dist']
-    df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
-    df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
-    df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
-    df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
-    df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
-    df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
-    df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
-    df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+    it  = gen_ping_pong_records(trento_a, 'ping_pong_trento_a_source_4_11702', tdoa_src_dev_number=None, bias_corrected=True)
+    df = pd.DataFrame.from_records(it)
+    print(df)
 
 
 
-    phase_dist_err = df['phase_dist_err'].to_numpy()
-    twr_tof_ds_err = df['twr_tof_ds_err'].to_numpy()
-
-    print("Phase: {}, DS-TWR: {}".format(np.nanstd(phase_dist_err), np.nanstd(twr_tof_ds_err)))
-    exit()
-
-
-    #pair_df = df[df['pair'] == '0-1']
-    pair_df = df
-
-    #pair_df['init_rx_phase_5deg'] = np.round(pair_df['init_rx_phase'] / 5)
-    #pair_df['response_rx_phase_5deg'] = np.round(pair_df['response_rx_phase'] / 5)
-
-
-
-
-
-    pair_df = pair_df.groupby('combined_phase').agg(
-        count=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
-        phase=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
-        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
-        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
-    )
-
-    import matplotlib
-
-    import matplotlib.pyplot as plt
-
-
-#    df.to_csv('raw-logs-{}-out-{}.csv'.format(log, tdoa_src_dev_number))
-
-    gb = df.groupby('pair').agg(
-        count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
-        dist=pd.NamedAgg(column='dist', aggfunc="min"),
-        tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
-        phase_dist_err_mean=pd.NamedAgg(column='phase_dist_err', aggfunc="mean"),
-        phase_dist_err_std=pd.NamedAgg(column='phase_dist_err', aggfunc="std"),
-        twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
-        twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
-        twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
-        twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
-        twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
-        twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
-        tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
-        tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
-        tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
-        tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
-        tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
-        tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
-        tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
-        tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
-        tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
-        tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
-    )
-
-    gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
-
-    gb.plot.bar(y=['twr_tof_ds_err_std', 'phase_dist_err_std'])
-
-    plt.show()
+#     import testbed.trento_b as trento_b
+#     from utility import cached_dt
+#     from utility import init_cache, load_env_config, set_global_cache_prefix_by_config
+#
+#     config = load_env_config()
+#
+#     assert 'EXPORT_DIR' in config and config['EXPORT_DIR']
+#
+#     if 'CACHE_DIR' in config and config['CACHE_DIR']:
+#         init_cache(config['CACHE_DIR'])
+#
+#     skip_to_round = 25
+#     up_to_round = 99999999
+#     use_bias_correction = True
+#     tdoa_src_dev_number = 0
+#
+#     log = 'job_11063' # path resolves to data/trento_b/exp_rx_noise_10041.log
+#
+#     def extract():
+#         it = extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number,
+#                               bias_corrected=use_bias_correction, experiment='TWR')
+#         return pd.DataFrame.from_records(it)
+#
+#
+#     df = cached_dt(('extract_job_tdma_new_4', log, tdoa_src_dev_number, use_bias_correction), extract)
+#
+#
+#     # the actual response rx phase is skewed by our local drift relative to b
+#     # hence we have to adjust the rx phase accordingly
+#     # if k_A > k_B, our phase drifts further while executing the protocol,
+#     # our own clock would be approximately (k_A/k_B)*Delay_A further
+#     # one phase duration is approx 0.046m / c = 0.000000153333333s
+#     # speaking of phase measurements, this would be ((k_A/k_B)*Delay_A) / ((c / freq) / c)
+#     # so ((k_A/k_B)*Delay_A) * freq
+#     #
+#     # note that we could also adapt the inital_rx phase and correct accordingly...
+#     # we hence have to account for that as well
+#     # for now, we reuse the extracted relative drift from the DS-TWR..
+#     # note that we are NOT wrapping around! as we might have missed multiple phases...
+#     #
+#     resp_corr = convert_ts_to_sec(df['round_a']) * base.CHAN5_FREQ
+#     # TODO: We might need to put not the rx timestamp into this calculation...
+#
+#     resp_corr = resp_corr-np.floor(resp_corr)
+#     df['response_rx_phase_corrected'] = np.mod((df['response_rx_phase'] - resp_corr * 128.0 + 128.0), 128.0)
+#
+#     #df['combined_phase'] = (df['init_rx_phase'] - df['response_rx_phase'])
+#     df['combined_phase'] = df['init_rx_phase'] - df['response_rx_phase_corrected']
+#     df['phase_dist'] = apply_phase_dist_to_col(df)
+#
+#
+#     df = df[(df['round'] >= skip_to_round) & (df['round'] <= up_to_round)]
+#
+#     df['phase_dist_err'] = df['phase_dist'] - df['dist']
+#     df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
+#     df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
+#     df['twr_tof_ss_reverse_err'] = df['twr_tof_ss_reverse'] - df['dist']
+#     df['tdoa_est_ds_err'] = df['tdoa_est_ds'] - df['tdoa']
+#     df['tdoa_est_ss_init_err'] = df['tdoa_est_ss_init'] - df['tdoa']
+#     df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
+#     df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
+#     df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+#
+#
+#
+#     phase_dist_err = df['phase_dist_err'].to_numpy()
+#     twr_tof_ds_err = df['twr_tof_ds_err'].to_numpy()
+#
+#     print("Phase: {}, DS-TWR: {}".format(np.nanstd(phase_dist_err), np.nanstd(twr_tof_ds_err)))
+#     exit()
+#
+#
+#     #pair_df = df[df['pair'] == '0-1']
+#     pair_df = df
+#
+#     #pair_df['init_rx_phase_5deg'] = np.round(pair_df['init_rx_phase'] / 5)
+#     #pair_df['response_rx_phase_5deg'] = np.round(pair_df['response_rx_phase'] / 5)
+#
+#
+#
+#
+#
+#     pair_df = pair_df.groupby('combined_phase').agg(
+#         count=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
+#         phase=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="count"),
+#         twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+#         twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
+#     )
+#
+#     import matplotlib
+#
+#     import matplotlib.pyplot as plt
+#
+#
+# #    df.to_csv('raw-logs-{}-out-{}.csv'.format(log, tdoa_src_dev_number))
+#
+#     gb = df.groupby('pair').agg(
+#         count=pd.NamedAgg(column='tdoa_est_ds', aggfunc="count"),
+#         dist=pd.NamedAgg(column='dist', aggfunc="min"),
+#         tdoa=pd.NamedAgg(column='tdoa', aggfunc="min"),
+#         phase_dist_err_mean=pd.NamedAgg(column='phase_dist_err', aggfunc="mean"),
+#         phase_dist_err_std=pd.NamedAgg(column='phase_dist_err', aggfunc="std"),
+#         twr_tof_ds_err_mean=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="mean"),
+#         twr_tof_ds_err_std=pd.NamedAgg(column='twr_tof_ds_err', aggfunc="std"),
+#         twr_tof_ss_err_mean=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="mean"),
+#         twr_tof_ss_err_std=pd.NamedAgg(column='twr_tof_ss_err', aggfunc="std"),
+#         twr_tof_ss_reverse_err_mean=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="mean"),
+#         twr_tof_ss_reverse_err_std=pd.NamedAgg(column='twr_tof_ss_reverse_err', aggfunc="std"),
+#         tdoa_est_ds_err_mean=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="mean"),
+#         tdoa_est_ds_err_std=pd.NamedAgg(column='tdoa_est_ds_err', aggfunc="std"),
+#         tdoa_est_ss_init_err_mean=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="mean"),
+#         tdoa_est_ss_init_err_std=pd.NamedAgg(column='tdoa_est_ss_init_err', aggfunc="std"),
+#         tdoa_est_ss_both_err_mean=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="mean"),
+#         tdoa_est_ss_both_err_std=pd.NamedAgg(column='tdoa_est_ss_both_err', aggfunc="std"),
+#         tdoa_est_ss_final_err_mean=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="mean"),
+#         tdoa_est_ss_final_err_std=pd.NamedAgg(column='tdoa_est_ss_final_err', aggfunc="std"),
+#         tdoa_est_mixed_err_mean=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="mean"),
+#         tdoa_est_mixed_err_std=pd.NamedAgg(column='tdoa_est_mixed_err', aggfunc="std")
+#     )
+#
+#     gb.to_csv('raw-logs-{}-out-pairs-{}.csv'.format(log, tdoa_src_dev_number))
+#
+#     gb.plot.bar(y=['twr_tof_ds_err_std', 'phase_dist_err_std'])
+#
+#     plt.show()
 
 
 

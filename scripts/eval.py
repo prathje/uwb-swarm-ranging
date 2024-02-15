@@ -1775,15 +1775,7 @@ def export_loc_sim(config, export_dir):
         plt.close()
 
 
-
-
-
-def get_df(log, tdoa_src_dev_number, use_bias_correction):
-    def proc():
-        it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
-        return pd.DataFrame.from_records(it)
-
-    df = utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+def add_df_cols(df, tdoa_src_dev_number=None):
 
     df['twr_tof_ds_err'] = df['twr_tof_ds'] - df['dist']
     df['twr_tof_ss_err'] = df['twr_tof_ss'] - df['dist']
@@ -1795,6 +1787,30 @@ def get_df(log, tdoa_src_dev_number, use_bias_correction):
         df['tdoa_est_ss_final_err'] = df['tdoa_est_ss_final'] - df['tdoa']
         df['tdoa_est_ss_both_err'] = df['tdoa_est_ss_both'] - df['tdoa']
         df['tdoa_est_mixed_err'] = df['tdoa_est_mixed'] - df['tdoa']
+
+    return df
+
+
+
+def get_df_cb(log, tdoa_src_dev_number, use_bias_correction):
+    def proc():
+        it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
+        return pd.DataFrame.from_records(it)
+
+    df = utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+
+
+
+    return df
+
+
+def get_df(log, tdoa_src_dev_number, use_bias_correction):
+    def proc():
+        it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
+        return pd.DataFrame.from_records(it)
+
+    df = utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+    add_df_cols(df, tdoa_src_dev_number)
     return df
 
 def extract_active_and_all_passive_dfs(log, filter_pair, filter_passive_listener, use_bias_correction, skip_to_round=0,
@@ -3422,8 +3438,8 @@ def export_delay_exp(config, export_dir):
     #active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
     #active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
     #active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
-    
-    
+
+
     for (i, passive_dev) in enumerate(passive_devs):
         filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
 
@@ -3483,6 +3499,493 @@ def export_delay_exp(config, export_dir):
     #ax.set_xlim([-100.0, +100.0])
 
     plt.savefig("{}/std_fit.pdf".format(export_dir), bbox_inches='tight')#, pad_inches=0)
+
+    plt.close()
+
+
+def export_delay_exp_ping_pong(config, export_dir):
+
+    for max_slots_dur in range(4, 52, 2):
+        logfiles = [
+            'ping_pong_trento_a_source_4_11702',
+            #'ping_pong_trento_a_source_4_11703',
+            #'ping_pong_trento_a_source_4_11704',
+            #'ping_pong_trento_a_source_4_11707',
+            #'ping_pong_trento_a_source_4_11708'
+        ]
+
+        def get_df(log, tdoa_src_dev_number, use_bias_correction, max_slots_dur):
+            def proc():
+                it = logs.gen_ping_pong_records(trento_a, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction, max_slot_dur=max_slots_dur)
+                df = pd.DataFrame.from_records(it)
+                return add_df_cols(df, tdoa_src_dev_number)
+            return utility.cached_dt(('extract_job_tdma_ping_pong_3', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
+
+        dfs = [
+            get_df(log, tdoa_src_dev_number=None, use_bias_correction=True, max_slots_dur=max_slots_dur) for log in logfiles
+        ]
+
+        active_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+        initiator = 3
+        responder = 0
+
+
+        passive_devs = [1]
+
+        # 3,4, 3to4
+        # 5, 4 to 5
+        # 6 3.5 to 4.5
+        # 7 6to8
+        # 8, 3.5 to 4.5
+        # 9 3.5 to 4.5
+        # 10 3.5 to 4.5
+        # 12 3 to 4
+
+        dfs = [
+            get_df(log, tdoa_src_dev_number=d, use_bias_correction=True, max_slots_dur=max_slots_dur) for log in logfiles for d in passive_devs
+        ]
+
+        passive_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+        # TODO add passive_df!!
+        # active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+        #                                                           use_bias_correction=True, skip_to_round=0,
+        #                                                           up_to_round=None)
+
+        def prepare_df(df):
+
+            df = df[df['initiator'] == initiator]
+            df = df[df['responder'] == responder]
+
+
+            df['delay_b_ms'] = df['delay_b'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+            df['delay_a_ms'] = df['delay_a'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+
+            df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
+
+            df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
+            df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
+            df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x * 1000) / 1000.0)
+            df = df[df['round'] > 50]
+            return df
+
+        active_df = prepare_df(active_df)
+        passive_df = prepare_df(passive_df)
+
+        active_df['twr_tof_ss_avg'] = (active_df['twr_tof_ss'] + active_df['twr_tof_ss_reverse']) / 2
+
+        # active_df = active_df[active_df['pair'] == "0-3"]
+        # print(active_df['ratio_rounded'].unique())
+        active_df_aggr = active_df.groupby('ratio_rounded').agg(
+            {
+                'twr_tof_ds_err': 'std',
+                'twr_tof_ss_err': 'std',
+                'twr_tof_ss_reverse_err': 'std',
+                'twr_tof_ss_avg': 'std',
+                'linear_ratio': 'mean'
+            }
+        )
+
+        #print(active_df_aggr)
+        #exit()
+
+        # active_df_aggr.plot.scatter(x=active_df_aggr['ratio_rounded'], y='twr_tof_ds_err')
+        # TODO: Fit curve?!
+        resp_delay_s = 0.002
+
+        def calc_delays_from_linear(linear_ratio):
+            if linear_ratio >= 1:
+                delay_a = resp_delay_s
+                delay_b = resp_delay_s * linear_ratio
+            else:
+                delay_a = resp_delay_s * (1.0 / linear_ratio)
+                delay_b = resp_delay_s
+            return delay_b, delay_a
+
+        def calc_delays_from_exp(exp_ratio):
+            if exp_ratio >= 0:
+                delay_a = resp_delay_s
+                delay_b = resp_delay_s * np.power(10, exp_ratio)
+            else:
+                delay_a = resp_delay_s * np.power(10, -exp_ratio)
+                delay_b = resp_delay_s
+            return delay_b, delay_a
+
+        # we fit a curve to the TWR measurements
+
+        num_bins = 10
+        colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
+
+        def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
+            return np.sqrt(
+                (0.5 * b_a_std) ** 2
+                + (0.5 * linear_ratios * a_b_std) ** 2
+                + (0.5 * linear_ratios * a_b_std) ** 2
+            )
+
+        data_xs = active_df_aggr['linear_ratio'].to_numpy()
+        data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+        data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
+
+        popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
+        pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
+
+        residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+        print("Active R2", np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
+        print("Optimal TWR Fit", popt)
+        print("NUM DATAPOINTS overall", len(active_df))
+        print("NUM ratios", len(active_df_aggr))
+
+        def calc_predicted_tdoa_std(linear_ratios, a_b_std, b_a_std, a_p_std, b_p_std):
+
+            return np.sqrt(
+                (0.5 * b_a_std) ** 2
+                + (0.5 * a_b_std * (linear_ratios - 1)) ** 2
+                + (0.5 * a_b_std * (linear_ratios)) ** 2
+                + (a_p_std * (1 - linear_ratios)) ** 2
+                + b_p_std ** 2
+                + (a_p_std * (linear_ratios)) ** 2
+            )
+
+        fig, ax = plt.subplots()
+        plt.plot(data_xs_ratio, pred_twr_ys, alpha=0.5, linestyle='--', color=colors[0])
+
+        # label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100))
+
+        def scatter_bins(df, col, color):
+            if num_bins == 0:
+                return
+            xs = []
+            ys = []
+
+            for name, group in df.groupby('ratio_rounded'):
+                r = group['ratio_rounded'].to_numpy()[0]
+                l = group[col].to_numpy()
+                ls = np.array_split(l, indices_or_sections=num_bins)
+
+                ys += [np.std(x) for x in ls]
+                xs += [r for x in ls]
+
+            plt.scatter(x=xs, y=ys, c=color, s=2.5)
+
+        scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
+        active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
+        # active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
+        # active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
+        # active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
+
+        for (i, passive_dev) in enumerate(passive_devs):
+            filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
+
+            aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
+                {
+                    'tdoa_est_ds': 'std',
+                    'linear_ratio': 'mean'
+                }
+            )
+
+            data_xs = aggr_filt_df['linear_ratio'].to_numpy()
+            data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+            data_ys = aggr_filt_df['tdoa_est_ds'].to_numpy()
+
+            def fit(linear_ratios, a_p_std, b_p_std):
+                return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
+
+            passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
+            pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
+
+            residuals = data_ys - fit(data_xs, *passive_popt)
+            ss_res = np.sum(residuals ** 2)
+            ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+            print("Passive {}".format(i), np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
+            print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1], np.round(popt[0] * 100, 2),
+                  np.round(popt[1] * 100, 2), np.round(passive_popt[0] * 100, 2), np.round(passive_popt[1] * 100, 2))
+
+            scatter_bins(filt_df, 'tdoa_est_ds', colors[i + 1])
+
+            plt.plot(data_xs_ratio, pred_tdoa_ys, color=colors[i + 1], linestyle='--', alpha=0.5)
+            # label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
+
+            aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA $L{}$ SD".format(i + 1), color=colors[i + 1],
+                                   style='-')
+
+        def formatter(x):
+            delay_b, delay_a = calc_delays_from_exp(x)
+            delay_a = round(delay_a * 1000)
+            delay_b = round(delay_b * 1000)
+            return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+
+        #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+        ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+        fig.set_size_inches(6.0, 6.0)
+
+        ax.set_xlabel('Delay Ratio')
+        ax.set_ylabel('SD [cm]')
+
+        ax.set_ylim([None, 0.05])
+
+        plt.grid(color='lightgray', linestyle='dashed')
+
+        plt.legend(reverse=True)
+        # plt.tight_layout()
+
+        # ax.set_ylim([0.0, 0.25])
+        # ax.set_xlim([-100.0, +100.0])
+
+        plt.savefig("{}/std_fit_ping_pong_{}.pdf".format(export_dir, max_slots_dur), bbox_inches='tight')  # , pad_inches=0)
+
+        plt.close()
+
+def export_delay_exp_new_delay(config, export_dir):
+
+    testbed = trento_b
+    logfiles = [
+        'new_delays_11764',
+        'new_delays_11765',
+        'new_delays_11766',
+        'new_delays_11767',
+        'new_delays_11768',
+        'new_delays_11769',
+        'new_delays_11770',
+        'new_delays_11771',
+        'new_delays_11772',
+        #'new_delay_exp_11754',
+        #'new_delay_exp_11755',
+        #'new_delay_exp_11756',
+        #'new_delay_exp_11757',
+        #'new_delay_exp_11758',
+    ]
+
+    initiator_id = 0
+    responder_id = 1
+    num_exchanges = 100
+    use_bias_correction = True
+    def get_df(log, tdoa_src_dev_number):
+        def proc():
+            it = logs.gen_new_delay_records(testbed, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction, initiator_id=initiator_id, responder_id=responder_id, num_exchanges=num_exchanges)
+            df = pd.DataFrame.from_records(it)
+            return add_df_cols(df, tdoa_src_dev_number)
+        return utility.cached_dt(('extract_job_tdma_new_delays', testbed.name, log, tdoa_src_dev_number, use_bias_correction, responder_id, initiator_id, num_exchanges), proc)
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=None) for log in logfiles
+    ]
+
+    active_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+
+    passive_devs = [3,6,9]
+
+    # 3,4, 3to4
+    # 5, 4 to 5
+    # 6 3.5 to 4.5
+    # 7 6to8
+    # 8, 3.5 to 4.5
+    # 9 3.5 to 4.5
+    # 10 3.5 to 4.5
+    # 12 3 to 4
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=d) for log in logfiles for d in passive_devs
+    ]
+
+    passive_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+    # TODO add passive_df!!
+    # active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
+    #                                                           use_bias_correction=True, skip_to_round=0,
+    #                                                           up_to_round=None)
+
+    def prepare_df(df):
+
+        df = df[df['initiator'] == initiator_id]
+        df = df[df['responder'] == responder_id]
+
+
+        df['delay_b_ms'] = df['delay_b'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+        df['delay_a_ms'] = df['delay_a'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+
+        df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
+
+        df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
+        df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
+        df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x * 1000) / 1000.0)
+        df = df[df['round'] > 50]
+        return df
+
+    active_df = prepare_df(active_df)
+    passive_df = prepare_df(passive_df)
+
+    active_df['twr_tof_ss_avg'] = (active_df['twr_tof_ss'] + active_df['twr_tof_ss_reverse']) / 2
+
+    # active_df = active_df[active_df['pair'] == "0-3"]
+    # print(active_df['ratio_rounded'].unique())
+    active_df_aggr = active_df.groupby('ratio_rounded').agg(
+        {
+            'twr_tof_ds_err': 'std',
+            'twr_tof_ss_err': 'std',
+            'twr_tof_ss_reverse_err': 'std',
+            'twr_tof_ss_avg': 'std',
+            'linear_ratio': 'mean'
+        }
+    )
+
+    #print(active_df_aggr)
+    #exit()
+
+    # active_df_aggr.plot.scatter(x=active_df_aggr['ratio_rounded'], y='twr_tof_ds_err')
+    # TODO: Fit curve?!
+    resp_delay_s = 0.002
+
+    def calc_delays_from_linear(linear_ratio):
+        if linear_ratio >= 1:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * linear_ratio
+        else:
+            delay_a = resp_delay_s * (1.0 / linear_ratio)
+            delay_b = resp_delay_s
+        return delay_b, delay_a
+
+    def calc_delays_from_exp(exp_ratio):
+        if exp_ratio >= 0:
+            delay_a = resp_delay_s
+            delay_b = resp_delay_s * np.power(10, exp_ratio)
+        else:
+            delay_a = resp_delay_s * np.power(10, -exp_ratio)
+            delay_b = resp_delay_s
+        return delay_b, delay_a
+
+    # we fit a curve to the TWR measurements
+
+    num_bins = 10
+    colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
+
+    def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
+        return np.sqrt(
+            (0.5 * b_a_std) ** 2
+            + (0.5 * linear_ratios * a_b_std) ** 2
+            + (0.5 * linear_ratios * a_b_std) ** 2
+        )
+
+    data_xs = active_df_aggr['linear_ratio'].to_numpy()
+    data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+    data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
+
+    popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
+    pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
+
+    residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
+    ss_res = np.sum(residuals ** 2)
+    ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+    print("Active R2", np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
+    print("Optimal TWR Fit", popt)
+    print("NUM DATAPOINTS overall", len(active_df))
+    print("NUM ratios", len(active_df_aggr))
+
+    def calc_predicted_tdoa_std(linear_ratios, a_b_std, b_a_std, a_p_std, b_p_std):
+
+        return np.sqrt(
+            (0.5 * b_a_std) ** 2
+            + (0.5 * a_b_std * (linear_ratios - 1)) ** 2
+            + (0.5 * a_b_std * (linear_ratios)) ** 2
+            + (a_p_std * (1 - linear_ratios)) ** 2
+            + b_p_std ** 2
+            + (a_p_std * (linear_ratios)) ** 2
+        )
+
+    fig, ax = plt.subplots()
+    plt.plot(data_xs_ratio, pred_twr_ys, alpha=0.5, linestyle='--', color=colors[0])
+
+    # label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100))
+
+    def scatter_bins(df, col, color):
+        if num_bins == 0:
+            return
+        xs = []
+        ys = []
+
+        for name, group in df.groupby('ratio_rounded'):
+            r = group['ratio_rounded'].to_numpy()[0]
+            l = group[col].to_numpy()
+            ls = np.array_split(l, indices_or_sections=num_bins)
+
+            ys += [np.std(x) for x in ls]
+            xs += [r for x in ls]
+
+        plt.scatter(x=xs, y=ys, c=color, s=2.5)
+
+    scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
+    active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
+    # active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
+    # active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
+    # active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
+
+    for (i, passive_dev) in enumerate(passive_devs):
+        filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
+
+        aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
+            {
+                'tdoa_est_ds': 'std',
+                'linear_ratio': 'mean'
+            }
+        )
+
+        data_xs = aggr_filt_df['linear_ratio'].to_numpy()
+        data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+        data_ys = aggr_filt_df['tdoa_est_ds'].to_numpy()
+
+        def fit(linear_ratios, a_p_std, b_p_std):
+            return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
+
+        passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
+        pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
+
+        residuals = data_ys - fit(data_xs, *passive_popt)
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+        print("Passive {}".format(i), np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
+        print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1], np.round(popt[0] * 100, 2),
+              np.round(popt[1] * 100, 2), np.round(passive_popt[0] * 100, 2), np.round(passive_popt[1] * 100, 2))
+
+        scatter_bins(filt_df, 'tdoa_est_ds', colors[i + 1])
+
+        plt.plot(data_xs_ratio, pred_tdoa_ys, color=colors[i + 1], linestyle='--', alpha=0.5)
+        # label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
+
+        aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA $L{}$ SD".format(i + 1), color=colors[i + 1],
+                               style='-')
+
+    def formatter(x):
+        delay_b, delay_a = calc_delays_from_exp(x)
+        delay_a = round(delay_a * 1000)
+        delay_b = round(delay_b * 1000)
+        return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
+
+    #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+    ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    fig.set_size_inches(6.0, 6.0)
+
+    ax.set_xlabel('Delay Ratio')
+    ax.set_ylabel('SD [cm]')
+
+    ax.set_ylim([None, 0.05])
+
+    plt.grid(color='lightgray', linestyle='dashed')
+
+    plt.legend(reverse=True)
+    # plt.tight_layout()
+
+    # ax.set_ylim([0.0, 0.25])
+    # ax.set_xlim([-100.0, +100.0])
+
+    plt.savefig("{}/std_fit_new.pdf".format(export_dir), bbox_inches='tight')  # , pad_inches=0)
 
     plt.close()
 
@@ -3674,7 +4177,7 @@ if __name__ == '__main__':
         #export_overall_rmse_reduction,
         #export_tdoa_simulation_drift_performance,
         #export_tdoa_simulation_rx_noise
-        export_tdoa_simulation_response_std,
+        #export_tdoa_simulation_response_std,
         #export_tdoa_simulation_response_std_scatter,
         #export_testbed_variance,
         #export_testbed_variance_calculated_tof,
@@ -3712,6 +4215,7 @@ if __name__ == '__main__':
         #export_delay_exp,
         #export_ds_cfo_active_std_comparison,
         #export_ds_cfo_passive_std_comparison
+        export_delay_exp_new_delay
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):

@@ -22,8 +22,8 @@ LOG_MODULE_REGISTER(main);
 #define INITIAL_DELAY_MS 5000
 #define SLOT_DUR_UUS 2000
 
-#define TX_BUFFER_DELAY_UUS 1000
-#define TX_INVOKE_MIN_DELAY_UUS 500
+#define TX_BUFFER_DELAY_UUS 1200
+#define TX_INVOKE_MIN_DELAY_UUS 800
 
 // This delays has to be below 17/2 s, logging of one slot message takes at least 4ms
 #define PRE_ROUND_DELAY_UUS 1000000
@@ -50,7 +50,7 @@ LOG_MODULE_REGISTER(main);
 #define EXP_POWER_STATES 10
 #define EXP_PING_PONG 20
 
-#define CURRENT_EXPERIMENT EXP_PING_PONG
+#define CURRENT_EXPERIMENT EXP_RESP_DELAYS
 
 #if CURRENT_EXPERIMENT == EXP_TWR
     #define SLOTS_PER_EXCHANGE 3
@@ -62,49 +62,65 @@ LOG_MODULE_REGISTER(main);
     // make sure that the history has enough space to hold all of this!!
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
     #define SLOTS_PER_EXCHANGE 3
+    #define EXP_RESP_DELAYS_INITIATOR 0
+    #define EXP_RESP_DELAYS_RESPONDER 1
     //#define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
     // we only schedule 3 nodes for now due to long resp delays
 
     int64_t exp_delays[][2] =  {
-        {2, 2},
-        {3, 2},
-        {4, 2},
-        {5, 2},
-        {6, 2},
-        {7, 2},
-        {8, 2},
-        {9, 2},
-        {10, 2},
-        {12, 2},
-        {14, 2},
-        {16, 2},
-        {18, 2},
-        {20, 2},
-        {25, 2},
-        {50, 2},
-        {100, 2},
-        {200, 2},
-        {2, 3},
-        {2, 4},
-        {2, 5},
-        {2, 6},
-        {2, 7},
-        {2, 8},
-        {2, 9},
-        {2, 10},
-        {2, 12},
-        {2, 14},
-        {2, 16},
-        {2, 18},
-        {2, 20},
-        {2, 25},
-        {2, 50},
-        {2, 100},
-        {2, 200}
+        //{2, 98},
+        {4, 96},
+        {6, 94},
+        {8, 92},
+        {10, 90},
+        {12, 88},
+        {14, 86},
+        {16, 84},
+        {18, 82},
+        {20, 80},
+        {22, 78},
+        {24, 76},
+        {26, 74},
+        {28, 72},
+        {30, 70},
+        {32, 68},
+        {34, 66},
+        {36, 64},
+        {38, 62},
+        {40, 60},
+        {42, 58},
+        {44, 56},
+        {46, 54},
+        {48, 52},
+        {50, 50},
+        {52, 48},
+        {54, 46},
+        {56, 44},
+        {58, 42},
+        {60, 40},
+        {62, 38},
+        {64, 36},
+        {66, 34},
+        {68, 32},
+        {70, 30},
+        {72, 28},
+        {74, 26},
+        {76, 24},
+        {78, 22},
+        {80, 20},
+        {82, 18},
+        {84, 16},
+        {86, 14},
+        {88, 12},
+        {90, 10},
+        {92, 8},
+        {94, 6},
+        //{96, 4},
+        //{98, 2},
     };
 
-
-    #define NUM_SLOTS (SLOTS_PER_EXCHANGE*(sizeof(exp_delays)/sizeof(exp_delays[0])))
+    #define NUM_SLOTS ((SLOTS_PER_EXCHANGE*(sizeof(exp_delays)/sizeof(exp_delays[0])))+1)
+    #define RESP_DELAY_BASE_SLOT_DUR_UUS 200
 
 
 #elif CURRENT_EXPERIMENT == EXP_POWER_STATES
@@ -113,9 +129,10 @@ LOG_MODULE_REGISTER(main);
 #elif CURRENT_EXPERIMENT == EXP_PING_PONG
 
 #define PING_PONG_INITIATOR 3
+#define PING_PONG_SLOTS (200+1)
 
 // MAKE SURE THAT THE HISTORY IS BIG ENOUGH TO HOLD ALL OF THIS ;)
-#define NUM_SLOTS (1400)
+#define NUM_SLOTS (PING_PONG_SLOTS*(NUM_NODES-1))
 
 #endif
 
@@ -222,6 +239,7 @@ static void sleep_until_dwt_ts(uint64_t wanted_ts) {
 K_SEM_DEFINE(round_start_sem, 0, 1);
 
 #if CURRENT_EXPERIMENT == EXP_TWR
+#define EXPERIMENT_NAME "twr"
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     return UUS_TO_DWT_TS(SLOT_DUR_UUS);
@@ -249,6 +267,7 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 }
 
 #elif CURRENT_EXPERIMENT == EXP_NOISE
+#define EXPERIMENT_NAME "noise"
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     return UUS_TO_DWT_TS(SLOT_DUR_UUS);
@@ -259,8 +278,15 @@ int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 }
 
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
+#define EXPERIMENT_NAME "resp_delays"
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
+
+    if (slot == 0) {
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS*2);
+    }
+
+    slot -= 1;
 
     uint8_t exp = (slot/3) % (sizeof(exp_delays)/sizeof(exp_delays[0]));
 
@@ -270,27 +296,34 @@ uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     uint8_t m = slot % 3;
 
     if (m == 0) {
-        return UUS_TO_DWT_TS((SLOT_DUR_UUS*delay_b_multiplier)/2);
+        return UUS_TO_DWT_TS(RESP_DELAY_BASE_SLOT_DUR_UUS*delay_b_multiplier);
     } else if(m == 1) {
-        return UUS_TO_DWT_TS((SLOT_DUR_UUS*delay_a_multiplier)/2);
+        return UUS_TO_DWT_TS(RESP_DELAY_BASE_SLOT_DUR_UUS*delay_a_multiplier);
     } else {
-        return UUS_TO_DWT_TS(SLOT_DUR_UUS*5); // we use a bit more delay to compensate for clock drifts in the last slot
+        return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use a bit more delay to compensate for clock drifts in the last slot
     }
 }
 
 int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
+    if (slot == 0) {
+        return EXP_RESP_DELAYS_INITIATOR;
+    }
+
+    slot -= 1;
+
     uint8_t m = slot % 3;
 
     if (m == 0 || m == 2) {
-        return 0;
+        return EXP_RESP_DELAYS_INITIATOR;
     } else if(m == 1) {
-        return 1;
+        return EXP_RESP_DELAYS_RESPONDER;
     }
 
     return -1;
 }
 
 #elif CURRENT_EXPERIMENT == EXP_PING_PONG
+#define EXPERIMENT_NAME "ping_pong"
 
 uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
     return UUS_TO_DWT_TS(SLOT_DUR_UUS); // we use the normal slot duration
@@ -299,7 +332,7 @@ uint64_t schedule_get_slot_duration_dwt_ts(uint16_t r, uint16_t slot) {
 int8_t schedule_get_tx_node_number(uint32_t r, uint32_t slot) {
 
     uint16_t init = PING_PONG_INITIATOR;
-    uint16_t resp = slot / (NUM_NODES - 1);
+    uint16_t resp = slot / PING_PONG_SLOTS;
 
     if(init <= resp) {
         resp = (resp+1) % NUM_NODES; // we do not want to execute a ranging with ourselves..., actually modulo should not be necessary here anyway?
@@ -356,7 +389,7 @@ int main(void) {
 
     {
        char buf[512];
-       snprintf(buf, sizeof(buf), "{\"event\": \"init\", \"own_number\": %hhu, \"rx_delay\": %hu, \"tx_delay\": %hu}\n", own_number, rx_delay, tx_delay);
+       snprintf(buf, sizeof(buf), "{\"event\": \"init\", \"own_number\": %hhu, \"rx_delay\": %hu, \"tx_delay\": %hu, \"experiment\": \"%s\"}\n", own_number, rx_delay, tx_delay, EXPERIMENT_NAME);
        log_out(buf); // this will be flushed later!
        log_flush();
     }
@@ -535,8 +568,7 @@ int main(void) {
                     log_flush();
                 }
 
-                sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts+(uint64_t)next_slot_dur_ts-(uint64_t)UUS_TO_DWT_TS(TX_BUFFER_DELAY_UUS))& DWT_TS_MASK);
-                // TODO: Maybe we can print some log output here?
+                sleep_until_dwt_ts(((uint64_t)next_slot_tx_ts+(uint64_t)next_slot_dur_ts-(uint64_t)UUS_TO_DWT_TS(TX_BUFFER_DELAY_UUS)) & DWT_TS_MASK);
             }
 
             // we are already in the next slot, set the next slot tx timestamp accordingly
