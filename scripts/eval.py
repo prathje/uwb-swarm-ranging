@@ -3807,15 +3807,18 @@ def export_delay_exp_new_delay(config, export_dir):
         df = df[df['responder'] == responder_id]
 
 
-        df['delay_b_ms'] = df['delay_b'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
-        df['delay_a_ms'] = df['delay_a'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+        df['delay_b_ms'] = df['delay_b'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
+        df['delay_a_ms'] = df['delay_a'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
 
         df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
 
         df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
         df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
-        df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x * 1000) / 1000.0)
+        df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x, decimals=2))
+
         df = df[df['round'] > 50]
+        df = df[df['ratio_rounded'] >= 0.1]
+        df = df[df['ratio_rounded'] <= 0.9]
         return df
 
     active_df = prepare_df(active_df)
