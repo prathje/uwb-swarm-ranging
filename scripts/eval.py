@@ -16,7 +16,7 @@ from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, con
 
 import matplotlib
 import matplotlib.pyplot as plt
-from utility import slugify, cached, init_cache, load_env_config, set_global_cache_prefix_by_config
+from utility import slugify, cached_legacy, init_cache, load_env_config, set_global_cache_prefix_by_config
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 
 import pandas as pd
@@ -89,7 +89,7 @@ def export_testbed_variance(config, export_dir):
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 11), proc))
+        ma = np.array(cached_legacy(('meas_var', t.name, runs[t.name], src_devs[t.name], 11), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -142,7 +142,7 @@ def export_testbed_variance_calculated_tof(config, export_dir):
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('meas_var', t.name, runs[t.name], src_devs[t.name], 10), proc))
+        ma = np.array(cached_legacy(('meas_var', t.name, runs[t.name], src_devs[t.name], 10), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -194,7 +194,7 @@ def export_testbed_variance_calculated_tof_ci(config, export_dir):
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('var_ma_calculated_tof_ci_', t.name, runs[t.name], src_devs[t.name], 12), proc))
+        ma = np.array(cached_legacy(('var_ma_calculated_tof_ci_', t.name, runs[t.name], src_devs[t.name], 12), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -250,7 +250,7 @@ def export_testbed_variance_calculated_tof_ci_avg(config, export_dir):
                             ma[b, a] = e
                 return ma
 
-            ma = np.array(cached(('export_testbed_variance_calculated_tof_ci_avg', t.name, runs[t.name], src_devs[t.name], 12, num_ci_avg), proc))
+            ma = np.array(cached_legacy(('export_testbed_variance_calculated_tof_ci_avg', t.name, runs[t.name], src_devs[t.name], 12, num_ci_avg), proc))
             print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
             plt.clf()
@@ -311,7 +311,7 @@ def export_testbed_variance_from_device(config, export_dir):
                         ma[b, a] = e
             return ma
 
-        ma = np.array(cached(('meas_var_device', t.name, runs[t.name], src_devs[t.name], 9), proc))
+        ma = np.array(cached_legacy(('meas_var_device', t.name, runs[t.name], src_devs[t.name], 9), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -366,7 +366,7 @@ def export_testbed_tdoa_variance(config, export_dir):
                         ma[b-1, a-1] = e
             return ma
 
-        ma = np.array(cached(('export_testbed_tdoa_variance', t.name, runs[t.name], src_devs[t.name], 16), proc))
+        ma = np.array(cached_legacy(('export_testbed_tdoa_variance', t.name, runs[t.name], src_devs[t.name], 16), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -423,7 +423,7 @@ def export_testbed_tdoa_calculated_tdoa_variance(config, export_dir):
                         ma[b-1, a-1] = e
             return ma
 
-        ma = np.array(cached(('export_testbed_tdoa_variance_calculated_tdoa', t.name, runs[t.name], src_devs[t.name], 16), proc))
+        ma = np.array(cached_legacy(('export_testbed_tdoa_variance_calculated_tdoa', t.name, runs[t.name], src_devs[t.name], 16), proc))
         print(t.name, "mean std", ma.mean(), "median",np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
         plt.clf()
@@ -480,8 +480,8 @@ def export_testbed_tdoa_calculated_tdoa_ci_variance(config, export_dir):
             return ma
 
         ma = np.array(
-            cached(('export_testbed_tdoa_variance_calculated_tdoa_ci', t.name, runs[t.name], src_devs[t.name], 16),
-                   proc))
+            cached_legacy(('export_testbed_tdoa_variance_calculated_tdoa_ci', t.name, runs[t.name], src_devs[t.name], 16),
+                          proc))
         print(t.name, "mean std", ma.mean(), "median", np.median(ma), "max", np.max(ma), "90% quantile",
               np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
 
@@ -646,7 +646,7 @@ def export_overall_rmse_reduction(config, export_dir):
             #     'rmse_calibrated': np.sqrt(res['squared_err_calibrated'][0])
             # }
 
-        data = cached(('overall', t.name, runs[t.name], src_devs[t.name], 17), proc)
+        data = cached_legacy(('overall', t.name, runs[t.name], src_devs[t.name], 17), proc)
         for k in data:
             if k not in errs:
                 errs[k] = []
@@ -749,7 +749,7 @@ def export_overall_mae_reduction(config, export_dir):
             #     'rmse_calibrated': np.sqrt(res['squared_err_calibrated'][0])
             # }
 
-        data = cached(('overall_mae', t.name, runs[t.name], src_devs[t.name], 17), proc)
+        data = cached_legacy(('overall_mae', t.name, runs[t.name], src_devs[t.name], 17), proc)
         for k in data:
             if k not in errs:
                 errs[k] = []
@@ -918,7 +918,7 @@ def export_filtered_mae_reduction(config, export_dir):
             }
 
 
-        data = cached(('export_filtered_mae_reduction', t.name, runs[t.name], src_devs[t.name], hash(json.dumps(ignored_pair)), 1), proc)
+        data = cached_legacy(('export_filtered_mae_reduction', t.name, runs[t.name], src_devs[t.name], hash(json.dumps(ignored_pair)), 1), proc)
         print(data)
         for k in data:
             if k not in errs:
@@ -1175,16 +1175,15 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
     from sim_tdoa import sim
 
-    limit = 2.05
+    ratio_limit = 0.001
     num = 50
-    response_delay_exps = np.linspace(-limit, limit, num)
 
-    xs = response_delay_exps
     num_sim_per_rep = 128
     num_reps = 16
     node_drift_std = 10.0/1000000.0
     mitigate_drift = True
     rx_noise_std = 1.0e-09
+    drift_rate_std= 8.0e-08
 
     rx_noise_stds = {
         'a-b': rx_noise_std,
@@ -1192,24 +1191,6 @@ def export_tdoa_simulation_response_std(config, export_dir):
         'a-p': rx_noise_std,
         'b-p': rx_noise_std,
     }
-
-    def calc_delays(x, overall_delay):
-        if x >= 0:
-            # x == 0, i.e. a 1:1 ratio!
-            #overall_delay = delay_a + delay_b
-            # also: delay_a = delay_b * np.power(10, x)
-            # hence: delay_a = (overall_delay-delay_a) * np.power(10, x)
-            # hence: delay_a/np.power(10, x) = (overall_delay-delay_a)
-            # hence: delay_a/np.power(10, x)+delay_a = overall_delay
-            # hence: delay_a*(1/np.power(10, x)+1) = overall_delay
-            # hence: delay_a = overall_delay / (1/np.power(10, x)+1)
-
-            delay_a = overall_delay / (1.0 / np.power(10, x) + 1.0)
-            delay_b = overall_delay-delay_a
-        else:
-            delay_b = overall_delay / (1.0 / np.power(10, x) + 1.0)
-            delay_a = overall_delay-delay_b
-        return delay_b, delay_a
 
     def get_rx_noise(tx, rx):
         if isinstance(rx_noise_stds, dict):
@@ -1279,53 +1260,78 @@ def export_tdoa_simulation_response_std(config, export_dir):
             + (a_p_std * (delay_b/comb_delay)) ** 2
         )
 
-    for resp_delay_s in [0.2]:
+    #@utility.cached
+    def proc_simulation_response_std(
+            ratio_limit = 0.001,
+            num = 50,
+            duration_s=0.001,
+            num_sim_per_rep=1,
+            num_reps=1,
+            node_drift_std=0.0,
+            rx_noise_stds=0.0,
+            mitigate_drift=True,
+            drift_rate_std=0.0
+    ):
+        data_rows = []
+        prediction_rows = []
 
-        def proc():
-            data_rows = []
-            prediction_rows = []
+        xs = np.linspace(ratio_limit, 1.0 - ratio_limit, num)
 
-            for x in xs:
-                delay_b, delay_a = calc_delays(x, resp_delay_s)
+        for x in xs:
+            delay_b = x * duration_s
+            delay_a = (1.0-x) * duration_s
 
-                for i in range(num_reps):
-                    res, _ = sim(
-                        num_exchanges=num_sim_per_rep,
-                        resp_delay_s=calc_delays(x, resp_delay_s),
-                        node_drift_std=node_drift_std,
-                        rx_noise_std=rx_noise_stds,
-                        tx_delay_mean=0.0,
-                        tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0,
-                        mitigate_drift=mitigate_drift
-                    )
+            for i in range(num_reps):
+                res, _ = sim(
+                    num_exchanges=num_sim_per_rep,
+                    resp_delay_s=(delay_b, delay_a),
+                    node_drift_std=node_drift_std,
+                    rx_noise_std=rx_noise_stds,
+                    tx_delay_mean=0.0,
+                    tx_delay_std=0.0, rx_delay_mean=0.0, rx_delay_std=0.0,
+                    mitigate_drift=mitigate_drift,
+                    drift_rate_std=drift_rate_std
+                )
 
-                    data_rows.append(
-                        {
-                            'rdr': x,
-                            'tof_std': 1.0e09*(res['est_tof_a']).std(),
-                            'tof_ds_std': 1.0e09*(res['est_tof_a_ds']).std(),
-                            'tdoa_std': 1.0e09*(res['est_tdoa']).std(),
-                            'tdoa_ds_std': 1.0e09*(res['est_tdoa_ds']).std(),
-                            'tdoa_half_cor_std': 1.0e09*(res['est_tdoa_half_cor']).std(),
-                            'tdoa_ds_half_cor_std': 1.0e09*(res['est_tdoa_ds_half_cor']).std(),
-                            'tof_mean': 1.0e09 * (res['est_tof_a']).mean(),
-                            'tof_ds_mean': 1.0e09 * (res['est_tof_a_ds']).mean(),
-                            'tdoa_mean': 1.0e09 * (res['est_tdoa']).mean(),
-                            'tdoa_ds_mean': 1.0e09 * (res['est_tdoa_ds']).mean(),
-                            'tdoa_half_cor_mean': 1.0e09 * (res['est_tdoa_half_cor']).mean(),
-                            'tdoa_ds_half_cor_mean': 1.0e09 * (res['est_tdoa_ds_half_cor']).mean()
-                        }
-                    )
+                data_rows.append(
+                    {
+                        'rdr': x,
+                        'tof_std': 1.0e09 * (res['est_tof_a']).std(),
+                        'tof_ds_std': 1.0e09 * (res['est_tof_a_ds']).std(),
+                        'tdoa_std': 1.0e09 * (res['est_tdoa']).std(),
+                        'tdoa_ds_std': 1.0e09 * (res['est_tdoa_ds']).std(),
+                        'tdoa_half_cor_std': 1.0e09 * (res['est_tdoa_half_cor']).std(),
+                        'tdoa_ds_half_cor_std': 1.0e09 * (res['est_tdoa_ds_half_cor']).std(),
+                        'tof_mean': 1.0e09 * (res['est_tof_a']).mean(),
+                        'tof_ds_mean': 1.0e09 * (res['est_tof_a_ds']).mean(),
+                        'tdoa_mean': 1.0e09 * (res['est_tdoa']).mean(),
+                        'tdoa_ds_mean': 1.0e09 * (res['est_tdoa_ds']).mean(),
+                        'tdoa_half_cor_mean': 1.0e09 * (res['est_tdoa_half_cor']).mean(),
+                        'tdoa_ds_half_cor_mean': 1.0e09 * (res['est_tdoa_ds_half_cor']).mean()
+                    }
+                )
 
-                prediction_rows.append({
-                    'rdr': x,
-                    'predicted_tof_std': 1.0e09 * calc_predicted_tof_std(delay_b, delay_a),
-                    'predicted_tof_std_navratil': 1.0e09 * calc_predicted_tof_std_navratil(delay_b, delay_a),
-                    'predicted_tdoa_std': 1.0e09 * calc_predicted_tdoa_std(delay_b, delay_a)
-                })
-            return data_rows, prediction_rows
+            prediction_rows.append({
+                'rdr': x,
+                'predicted_tof_std': 1.0e09 * calc_predicted_tof_std(delay_b, delay_a),
+                'predicted_tof_std_navratil': 1.0e09 * calc_predicted_tof_std_navratil(delay_b, delay_a),
+                'predicted_tdoa_std': 1.0e09 * calc_predicted_tdoa_std(delay_b, delay_a)
+            })
+        return data_rows, prediction_rows
 
-        data_rows, prediction_rows = cached( ('export_tdoa_simulation_response_std_new', limit, step, 24, num_sim_per_rep, num_reps, resp_delay_s, node_drift_std, mitigate_drift), proc)
+    for duration_s in [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2]:
+
+        data_rows, prediction_rows = proc_simulation_response_std(
+            ratio_limit=ratio_limit,
+            num=num,
+            duration_s=duration_s,
+            num_sim_per_rep=num_sim_per_rep,
+            num_reps=num_reps,
+            node_drift_std=node_drift_std,
+            rx_noise_stds=rx_noise_stds,
+            mitigate_drift=mitigate_drift,
+            drift_rate_std=drift_rate_std
+        )
 
         data_df = pd.DataFrame(data_rows)
         pred_df = pd.DataFrame(prediction_rows)
@@ -1358,13 +1364,15 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         #ax.xaxis.set_major_formatter(lambda x, pos: r'$10^{{{}}}$'.format(int(round(x))))
 
-        def formatter(x):
-            delay_b, delay_a = calc_delays(x, resp_delay_s)
-            delay_a = delay_a*1000
-            delay_b = delay_b*1000
-            return r'${{{}}}:{{{}}}$'.format(round(delay_b), round(delay_a))
+        # def formatter(x):
+        #     delay_b, = x * duration_s
+        #     delay_a = duration_s - delay_b
+        #
+        #     delay_a = delay_a*1000
+        #     delay_b = delay_b*1000
+        #     return r'${{{}}}:{{{}}}$'.format(round(delay_b), round(delay_a))
 
-        ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
+        #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
 
         #plt.axhline(y=np.sqrt(0.5), color='C0', linestyle='dotted', label = "Analytical ToF SD")
         #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA SD")
@@ -1384,7 +1392,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
         ax.yaxis.set_major_locator(MultipleLocator(1.0))
         ax.yaxis.set_minor_locator(MultipleLocator(0.2))
 
-        ax.xaxis.set_major_locator(MultipleLocator(1.0))
+        #ax.xaxis.set_major_locator(MultipleLocator(1.0))
 
         # counter = 0
         # for p in ax.patches:
@@ -1433,7 +1441,7 @@ def export_tdoa_simulation_response_std(config, export_dir):
 
         plt.tight_layout()
 
-        plt.savefig("{}/tdoa_sim_rmse_reponse_delay_ratio_{}.pdf".format(export_dir, round(resp_delay_s*1000)), bbox_inches = 'tight', pad_inches = 0)
+        plt.savefig("{}/tdoa_sim_rmse_reponse_delay_ratio_{}_{}.pdf".format(export_dir, round(duration_s*1000), 0), bbox_inches = 'tight', pad_inches = 0)
         #plt.show()
 
         plt.close()
@@ -1479,7 +1487,7 @@ def export_tof_simulation_response_std(config, export_dir):
 
         return data_rows
 
-    data_rows = cached(('export_tdoa_simulation_response_mean', limit, step, 10, num_sims, resp_delay_s), proc)
+    data_rows = cached_legacy(('export_tdoa_simulation_response_mean', limit, step, 10, num_sims, resp_delay_s), proc)
 
     df = pd.DataFrame(data_rows)
 
@@ -1579,7 +1587,7 @@ def export_tdoa_simulation_response_std_scatter(config, export_dir):
 
         return data_rows
 
-    data_rows = cached( ('export_tdoa_simulation_response_std_scatter', hash(json.dumps(list(xs))), 9, num_sims, resp_delay_s, num_sims), proc)
+    data_rows = cached_legacy(('export_tdoa_simulation_response_std_scatter', hash(json.dumps(list(xs))), 9, num_sims, resp_delay_s, num_sims), proc)
     df = pd.DataFrame(data_rows)
     print(df)
 
@@ -1660,8 +1668,8 @@ def export_loc_sim(config, export_dir):
         )
 
     version = 4
-    tof_m = cached(('export_tof_loc_sim_2', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tof_proc)
-    tdoa_m = cached(('export_tdoa_loc_sim_2', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tdoa_proc)
+    tof_m = cached_legacy(('export_tof_loc_sim_2', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tof_proc)
+    tdoa_m = cached_legacy(('export_tdoa_loc_sim_2', meas_std, samples_per_side, repetitions, sim_localization_variance.SIDE_LENGTH, version), tdoa_proc)
     tof_gdop = gdop_tof_proc()
     tdoa_gdop = gdop_tdoa_proc()
 
@@ -1797,7 +1805,7 @@ def get_df_cb(log, tdoa_src_dev_number, use_bias_correction):
         it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
         return pd.DataFrame.from_records(it)
 
-    df = utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+    df = utility.cached_dt_legacy(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
 
 
 
@@ -1809,7 +1817,7 @@ def get_df(log, tdoa_src_dev_number, use_bias_correction):
         it = logs.extract_tdma_twr(trento_b, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction)
         return pd.DataFrame.from_records(it)
 
-    df = utility.cached_dt(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
+    df = utility.cached_dt_legacy(('extract_job_tdma', log, tdoa_src_dev_number, use_bias_correction), proc)
     add_df_cols(df, tdoa_src_dev_number)
     return df
 
@@ -1922,7 +1930,7 @@ def compute_all_agg_means_and_stds(log, use_bias_correction = True, skip_to_roun
 def cached_compute_all_agg_means_and_stds(log, use_bias_correction = True, skip_to_round = 0, up_to_round = None):
     def proc():
         return compute_all_agg_means_and_stds(log, use_bias_correction=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
-    return utility.cached_dt(('cached_compute_all_means_and_stds', log, use_bias_correction,skip_to_round, up_to_round, 1), proc)
+    return utility.cached_dt_legacy(('cached_compute_all_means_and_stds', log, use_bias_correction, skip_to_round, up_to_round, 1), proc)
 
 
 def export_twr_scatter(config, export_dir):
@@ -1967,7 +1975,7 @@ def export_twr_vs_tdoa_scatter_rssi(config, export_dir):
     def proc():
         return pd.DataFrame.from_records(logs.gen_all_rx_events(trento_b, log))
 
-    all_raw_df = utility.cached_dt(('export_twr_vs_tdoa_scatter_rssi_raw', log), proc)
+    all_raw_df = utility.cached_dt_legacy(('export_twr_vs_tdoa_scatter_rssi_raw', log), proc)
     rssi_values = all_raw_df.groupby(['own_number', 'rx_number']).agg({'rssi': ['mean', 'std', lambda x: x.quantile(0.95)]}).transpose().to_dict()
 
     def get_rssi_mean_std(r, t):
@@ -2721,7 +2729,7 @@ def export_localization_performance(config, export_dir):
                             filtered_passive_df = passive_df[(passive_df['pair'] == "{}-{}".format(na, nb)) & (passive_df['tdoa_device'] == nc)]
                             tdoa_measurements["{}-{}-{}".format(dev_a, dev_b, dev_c)] = filtered_passive_df['tdoa_est_ds'].mean()
         return [tof_meas, tdoa_measurements]
-    string_keyed_tof_meas, string_keyed_tdoa_measurements = cached(('export_localization_performance', log, use_bias_correction, skip_to_round, up_to_round, 3), proc)
+    string_keyed_tof_meas, string_keyed_tdoa_measurements = cached_legacy(('export_localization_performance', log, use_bias_correction, skip_to_round, up_to_round, 3), proc)
 
     tof_meas = {}
     tdoa_measurements = {}
@@ -2971,7 +2979,7 @@ def export_histogram_mean(config, export_dir):
 def get_cached_rx_noise(testbed, run, bias_corrected=True, skip_to_round = 0, up_to_round = None):
     def proc():
         return logs.estimate_rx_noise_using_cfo(testbed, run, bias_corrected=bias_corrected, skip_to_round=skip_to_round, up_to_round=up_to_round)
-    return utility.cached_dt(('get_cached_rx_noise_new5', testbed.name, run, bias_corrected, skip_to_round, up_to_round), proc)
+    return utility.cached_dt_legacy(('get_cached_rx_noise_new5', testbed.name, run, bias_corrected, skip_to_round, up_to_round), proc)
 
 
 def export_measured_mean_std_matrix(config, export_dir):
@@ -3505,6 +3513,8 @@ def export_delay_exp(config, export_dir):
 
 def export_delay_exp_ping_pong(config, export_dir):
 
+    use_bias_correction = True
+
     for max_slots_dur in range(4, 52, 2):
         logfiles = [
             'ping_pong_trento_a_source_4_11702',
@@ -3514,15 +3524,15 @@ def export_delay_exp_ping_pong(config, export_dir):
             #'ping_pong_trento_a_source_4_11708'
         ]
 
-        def get_df(log, tdoa_src_dev_number, use_bias_correction, max_slots_dur):
+        def get_df(log, tdoa_src_dev_number):
             def proc():
                 it = logs.gen_ping_pong_records(trento_a, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction, max_slot_dur=max_slots_dur)
                 df = pd.DataFrame.from_records(it)
                 return add_df_cols(df, tdoa_src_dev_number)
-            return utility.cached_dt(('extract_job_tdma_ping_pong_3', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
+            return utility.cached_dt_legacy(('extract_job_tdma_ping_pong_3', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
 
         dfs = [
-            get_df(log, tdoa_src_dev_number=None, use_bias_correction=True, max_slots_dur=max_slots_dur) for log in logfiles
+            get_df(log, tdoa_src_dev_number=None) for log in logfiles
         ]
 
         active_df = pd.concat(dfs, ignore_index=True, copy=True)
@@ -3543,7 +3553,7 @@ def export_delay_exp_ping_pong(config, export_dir):
         # 12 3 to 4
 
         dfs = [
-            get_df(log, tdoa_src_dev_number=d, use_bias_correction=True, max_slots_dur=max_slots_dur) for log in logfiles for d in passive_devs
+            get_df(log, tdoa_src_dev_number=d) for log in logfiles for d in passive_devs
         ]
 
         passive_df = pd.concat(dfs, ignore_index=True, copy=True)
@@ -3559,14 +3569,14 @@ def export_delay_exp_ping_pong(config, export_dir):
             df = df[df['responder'] == responder]
 
 
-            df['delay_b_ms'] = df['delay_b'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
-            df['delay_a_ms'] = df['delay_a'].apply(lambda x: np.round(convert_ts_to_sec(x) * 1000))
+            df['delay_b_ms'] = df['delay_b'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
+            df['delay_a_ms'] = df['delay_a'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
 
             df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
 
             df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
             df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
-            df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x * 1000) / 1000.0)
+            df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x, decimals=2))
             df = df[df['round'] > 50]
             return df
 
@@ -3744,7 +3754,7 @@ def export_delay_exp_ping_pong(config, export_dir):
 def export_delay_exp_new_delay(config, export_dir):
 
     testbed = trento_b
-    logfiles = [
+    logfiles_10 = [
         'new_delays_11764',
         'new_delays_11765',
         'new_delays_11766',
@@ -3754,12 +3764,24 @@ def export_delay_exp_new_delay(config, export_dir):
         'new_delays_11770',
         'new_delays_11771',
         'new_delays_11772',
+        'new_delays_11773',
+        'new_delays_11778',
+        #'new_delays_11779',
+        'new_delays_11780',
+        'new_delays_11781',
+        'new_delays_11782',
         #'new_delay_exp_11754',
         #'new_delay_exp_11755',
         #'new_delay_exp_11756',
         #'new_delay_exp_11757',
         #'new_delay_exp_11758',
     ]
+
+    logfiles_5 = [
+        'exp_new_delays_11796_5ms',
+    ]
+
+    logfiles = logfiles_5
 
     initiator_id = 0
     responder_id = 1
@@ -3770,7 +3792,7 @@ def export_delay_exp_new_delay(config, export_dir):
             it = logs.gen_new_delay_records(testbed, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction, initiator_id=initiator_id, responder_id=responder_id, num_exchanges=num_exchanges)
             df = pd.DataFrame.from_records(it)
             return add_df_cols(df, tdoa_src_dev_number)
-        return utility.cached_dt(('extract_job_tdma_new_delays', testbed.name, log, tdoa_src_dev_number, use_bias_correction, responder_id, initiator_id, num_exchanges), proc)
+        return utility.cached_dt_legacy(('extract_job_tdma_new_delays', testbed.name, log, tdoa_src_dev_number, use_bias_correction, responder_id, initiator_id, num_exchanges), proc)
 
     dfs = [
         get_df(log, tdoa_src_dev_number=None) for log in logfiles
@@ -3816,9 +3838,10 @@ def export_delay_exp_new_delay(config, export_dir):
         df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
         df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x, decimals=2))
 
-        df = df[df['round'] > 50]
-        df = df[df['ratio_rounded'] >= 0.1]
-        df = df[df['ratio_rounded'] <= 0.9]
+        df = df[df['round'] > 100]
+        df = df[df['ratio_rounded'] >= 0.2]
+        df = df[df['ratio_rounded'] <= 0.8]
+
         return df
 
     active_df = prepare_df(active_df)
@@ -4219,6 +4242,7 @@ if __name__ == '__main__':
         #export_ds_cfo_active_std_comparison,
         #export_ds_cfo_passive_std_comparison
         export_delay_exp_new_delay
+        #export_delay_exp_ping_pong
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
