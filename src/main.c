@@ -52,6 +52,15 @@ LOG_MODULE_REGISTER(main);
 
 #define CURRENT_EXPERIMENT EXP_RESP_DELAYS
 
+
+//#define DB_START(NAME) uint64_t dbts_start_##NAME = dwt_system_ts(ieee802154_dev);
+//#define DB_END(NAME) uint64_t dbts_end_##NAME = dwt_system_ts(ieee802154_dev);
+//#define DB_LOG(NAME) LOG_INF("TIMING " ## NAME ## "%lld us (start ts %llu, end ts %llu)", (int64_t)(DWT_TS_TO_US((dbts_##END-dbts_##START)&DWT_TS_MASK))-45, dbts_start_##NAME, dbts_end_##NAME); /* -45 because of the inherent 45 ms delay in the dwt_system_ts call */
+
+#define SW_START(NAME) int64_t dbts_start_##NAME = k_ticks_to_us_near64(k_uptime_ticks());
+#define SW_END(NAME) int64_t dbts_end_##NAME = k_ticks_to_us_near64(k_uptime_ticks());
+#define SW_LOG(NAME) LOG_INF("TIMING " #NAME " %lld us (start ts %lld, end ts %lld)", dbts_end_##NAME - dbts_start_##NAME, dbts_start_##NAME, dbts_end_##NAME);
+
 #if CURRENT_EXPERIMENT == EXP_TWR
     #define SLOTS_PER_EXCHANGE 3
     #define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
@@ -62,13 +71,13 @@ LOG_MODULE_REGISTER(main);
     // make sure that the history has enough space to hold all of this!!
 #elif CURRENT_EXPERIMENT == EXP_RESP_DELAYS
     #define SLOTS_PER_EXCHANGE 3
-    #define EXP_RESP_DELAYS_INITIATOR 0
-    #define EXP_RESP_DELAYS_RESPONDER 1
+    #define EXP_RESP_DELAYS_INITIATOR 3
+    #define EXP_RESP_DELAYS_RESPONDER 2
     //#define NUM_SLOTS (NUM_NODES*(NUM_NODES-1)*SLOTS_PER_EXCHANGE)
     // we only schedule 3 nodes for now due to long resp delays
 
     int64_t exp_delays[][2] =  {
-        //{2, 98},
+        {2, 98},
         {4, 96},
         {6, 94},
         {8, 92},
@@ -115,12 +124,12 @@ LOG_MODULE_REGISTER(main);
         {90, 10},
         {92, 8},
         {94, 6},
-        //{96, 4},
-        //{98, 2},
+        {96, 4},
+        {98, 2},
     };
 
     #define NUM_SLOTS ((SLOTS_PER_EXCHANGE*(sizeof(exp_delays)/sizeof(exp_delays[0])))+1)
-    #define RESP_DELAY_BASE_SLOT_DUR_UUS 200
+    #define RESP_DELAY_BASE_SLOT_DUR_UUS 400
 
 
 #elif CURRENT_EXPERIMENT == EXP_POWER_STATES
@@ -439,6 +448,16 @@ int main(void) {
     // TODO: do not sleep right now as we have enough pre round delay atm!
     //sleep_until_dwt_ts(dwt_system_ts(ieee802154_dev)+UUS_TO_DWT_TS(INITIAL_DELAY_MS*1000) & DWT_TS_MASK);
 
+     // Timing test
+     {
+        for (int i = 0; i < 10; i++) {
+            uint64_t ts1 = dwt_system_ts(ieee802154_dev);
+            uint64_t ts2 = dwt_system_ts(ieee802154_dev);
+            int64_t diff_us = DWT_TS_TO_US((ts2-ts1)&DWT_TS_MASK);
+            LOG_INF("dwt_system_ts calls ts1  %llu, ts2: %llu, diff us %lld", ts1, ts2, diff_us);
+        }
+    }
+
 //    {
 //        uint64_t init_ts = dwt_system_ts(ieee802154_dev);
 //        uint64_t wanted_ts = init_ts + UUS_TO_DWT_TS(100);
@@ -497,10 +516,13 @@ int main(void) {
                 //k_thread_priority_set(k_current_get(), K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)); // we are a bit time sensitive from here on now ;)
                 k_thread_priority_set(k_current_get(), K_HIGHEST_THREAD_PRIO); // we are a bit time sensitive from here on now ;)
 
+                SW_START(tx);
+
                 struct net_pkt *pkt = NULL;
                 struct net_buf *buf = NULL;
                 size_t len = sizeof (msg_header)+sizeof(msg_tx_buf);
 
+                SW_START(pkt_alloc);
                 /* Maximum 2 bytes are added to the len */
                 while(pkt == NULL) {
                     pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0, K_MSEC(100));//K_NO_WAIT);
@@ -509,35 +531,61 @@ int main(void) {
                     }
                 }
 
+
                 buf = net_buf_frag_last(pkt->buffer);
                 len = net_pkt_get_len(pkt);
+                SW_END(pkt_alloc);
+
+
+                SW_START(net_pkt_timestamp);
 
                 struct net_ptp_time ts;
                 ts.second = 0;
                 ts.nanosecond = 0;
 
                 net_pkt_set_timestamp(pkt, &ts);
-
                 net_pkt_write(pkt, msg_header, sizeof(msg_header));
 
+                SW_END(net_pkt_timestamp);
+
                 // update current values
+
+                SW_START(net_pkt_write);
+
                 msg_tx_buf.round = cur_round;
                 msg_tx_buf.slot = next_slot;
 
                 // all other entries are updated in the rx event!
                 net_pkt_write(pkt, &msg_tx_buf, sizeof(msg_tx_buf));
 
+                SW_END(net_pkt_write);
+
                 uint32_t planned_tx_short_ts = next_slot_tx_ts >> 8;
                 dwt_set_delayed_tx_short_ts(ieee802154_dev, planned_tx_short_ts);
+                SW_END(planned_tx);
 
-                uint64_t tx_invoke_ts = dwt_system_ts(ieee802154_dev);
+                SW_START(tx_invoke_ts);
+                uint64_t tx_invoke_ts = dwt_system_ts(ieee802154_dev); // TODO: do we really need to call this here? this might slow us down even more!, this takes approximately 45 to 46 usec
+                SW_END(tx_invoke_ts);
 
+                SW_START(tx_invoke);
                 // Check that we are not overflowing, i.e. that we are not too late with the tx invocation here! (otherwise we will get a warning which destroys all of our timing...)
                 if ((uint64_t)(next_slot_tx_ts-(tx_invoke_ts+DWT_TS_TO_US(TX_INVOKE_MIN_DELAY_UUS))) < DWT_TS_MASK/2) {
                     ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_TXTIME, pkt, buf);
                 }
+                SW_END(tx_invoke);
+                SW_END(tx);
 
-                // WE NEED COOP PRIORITY otherwise we are verryb likely to miss our tx window
+                if (own_number == EXP_RESP_DELAYS_INITIATOR) {
+                    SW_LOG(tx);
+                    SW_LOG(pkt_alloc);
+                    SW_LOG(net_pkt_timestamp);
+                    SW_LOG(net_pkt_write);
+                    SW_LOG(tx_invoke_ts);
+                    SW_LOG(tx_invoke);
+                }
+
+                // WE NEED COOP PRIORITY otherwise we are verry likely to miss our tx window
                 k_thread_priority_set(k_current_get(), K_HIGHEST_APPLICATION_THREAD_PRIO); // we are less time sensitive from here on now ;)
                 net_pkt_unref(pkt);
 
@@ -553,7 +601,6 @@ int main(void) {
                     snprintf(buf, sizeof(buf), "{\"event\": \"slot_start\", \"own_number\": %hhu, \"round\": %u, \"slot\": %u, \"slot_start\": %llu, \"slot_start_us\": %llu, \"tx_invoke_ts_us\": %llu, \"actual_round_start_us\": %llu}\n", own_number, cur_round, next_slot, next_slot_tx_ts, DWT_TS_TO_US(next_slot_tx_ts), DWT_TS_TO_US(tx_invoke_ts), DWT_TS_TO_US(actual_round_start));
                     log_out(buf);
                 }
-
             } else {
                 // TODO: some debugging stuff!
 //                if (history_save_rx(own_number, 125, cur_round, next_slot, 1, 2, 3, 4, 5)) {
