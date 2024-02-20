@@ -1,3 +1,4 @@
+import functools
 import re
 import gzip
 import json
@@ -5,11 +6,20 @@ import os
 import numpy as np
 
 # https://stackoverflow.com/a/46801075/6669161
-def slugify(s):
-    if isinstance(s, list) or isinstance(s, tuple):
-        s = " ".join(slugify(x) for x in s)
-    s = str(s).strip().replace(' ', '_')
-    return re.sub(r'(?u)[^-\w.]', '', s)
+def slugify(obj, *args):
+    if isinstance(obj, np.ndarray):
+        return slugify(obj.tolist())
+    if isinstance(obj, dict):
+        res = ""
+        for k, v in obj.items():
+            res += slugify(k) + slugify(v)
+    if isinstance(obj, list) or isinstance(obj, tuple):
+        obj = " ".join(slugify(x) for x in obj)
+
+    res = str(obj).strip().replace(' ', '_')
+    if len(args) > 0:
+        res += slugify(args)
+    return re.sub(r'(?u)[^-\w.]', '', res)
 
 def load_env_config():
     import dotenv
@@ -46,7 +56,7 @@ def set_global_cache_prefix(pref):
 def set_global_cache_prefix_by_config(config):
     set_global_cache_prefix(hash(json.dumps(config, sort_keys=True)))
 
-def cached(id, proc_cb=None):
+def cached_legacy(id, proc_cb=None):
     global global_cache_prefix
     if export_cache_dir:
         cache_file = os.path.join(export_cache_dir, slugify(id) + '.json.gz')
@@ -59,8 +69,27 @@ def cached(id, proc_cb=None):
     else:
         return proc_cb()
 
+def cached(func, ):
+    global global_cache_prefix
+    if export_cache_dir:
+        def wrapped(*args, **kwargs):
+            s = slugify(
+                func.__name__, global_cache_prefix, args, kwargs
+            )
+            cache_file = os.path.join(export_cache_dir, s + '.json.gz')
+            if not os.path.isfile(cache_file):
+                data = func(*args, **kwargs)
+                with gzip.open(cache_file, 'wt', encoding='UTF-8') as zipfile:
+                    json.dump(data, zipfile, cls=NumpyEncoder)
+            with gzip.open(cache_file, 'rt', encoding='UTF-8') as json_file:
+                return json.load(json_file)
+        return wrapped
+    else:
+        return func
 
-def cached_dt(id, proc_cb=None):
+
+
+def cached_dt_legacy(id, proc_cb=None):
     import pandas as pd
     global global_cache_prefix
     if export_cache_dir:
