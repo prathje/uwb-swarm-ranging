@@ -332,10 +332,32 @@ def gen_delay_estimates_from_testbed_run(testbed, run, src_dev=None, ignore_pair
 
 import pandas as pd
 
+import io
+
+def gen_messages_from_testbed_run(testbed, run):
+
+    if run.endswith('.tar.gz'):
+        import tarfile
+        p = "data/{}/{}".format(testbed.name, run)
+        tar = tarfile.open(p, "r:gz")
+
+        with tar:
+            for member in tar.getmembers():
+                if member.name.endswith('.log'):
+                    logfile = tar.extractfile(member)
+                    with io.TextIOWrapper(logfile) as f:
+                        yield from testbed.parse_messages_from_lines(f)
+    else:
+        if run.endswith('.log'):
+            run = run[:-4]
+        logfile = "data/{}/{}.log".format(testbed.name, run)
+        with open(logfile) as f:
+            yield from testbed.parse_messages_from_lines(f)
+
+
+
 
 def gen_round_events(testbed, run, iter_per_device=True):
-    logfile = "data/{}/{}.log".format(testbed.name, run)
-
     def gen_round_events_for_iter(it, filter_dev=None):
         it_rx_events = []
         it_tx_events = []
@@ -372,35 +394,35 @@ def gen_round_events(testbed, run, iter_per_device=True):
         if len(it_rx_events) > 0 or len(it_tx_events) > 0:
             yield it_round, it_rx_events, it_tx_events
 
-    with open(logfile) as f:
-        msg_gen = testbed.parse_messages_from_lines(f)
 
-        if iter_per_device:
-            import itertools
-            it_copies = itertools.tee(msg_gen, len(testbed.devs))
-            dev_iters = [gen_round_events_for_iter(it, filter_dev=d) for d, it in zip(testbed.devs, it_copies)]
+    msg_gen = gen_messages_from_testbed_run(testbed, run)
 
-            round_events = [next(di, (None, [], [])) for di in dev_iters]
-            while True:
-                min_round = min([re[0] for re in round_events if re[0] is not None], default=None)
+    if iter_per_device:
+        import itertools
+        it_copies = itertools.tee(msg_gen, len(testbed.devs))
+        dev_iters = [gen_round_events_for_iter(it, filter_dev=d) for d, it in zip(testbed.devs, it_copies)]
 
-                if min_round is None:
-                    break  # we are done
+        round_events = [next(di, (None, [], [])) for di in dev_iters]
+        while True:
+            min_round = min([re[0] for re in round_events if re[0] is not None], default=None)
 
-                all_rx_events = []
-                all_tx_events = []
+            if min_round is None:
+                break  # we are done
 
-                for i, re in enumerate(round_events):
-                    if re[0] == min_round:
-                        all_rx_events += re[1]
-                        all_tx_events += re[2]
-                        round_events[i] = next(dev_iters[i], (None, [], [])) #advance this it
-                    else:
-                        print("min_round", min_round, i, re[0])
+            all_rx_events = []
+            all_tx_events = []
 
-                yield min_round, all_rx_events, all_tx_events
-        else:
-            yield from gen_round_events_for_iter(msg_gen)
+            for i, re in enumerate(round_events):
+                if re[0] == min_round:
+                    all_rx_events += re[1]
+                    all_tx_events += re[2]
+                    round_events[i] = next(dev_iters[i], (None, [], [])) #advance this it
+                else:
+                    print("min_round", min_round, i, re[0])
+
+            yield min_round, all_rx_events, all_tx_events
+    else:
+        yield from gen_round_events_for_iter(msg_gen)
 
 def gen_all_rx_events(testbed, run, skip_to_round=None, until_round=None):
     round_gen = gen_round_events(testbed, run)
@@ -683,6 +705,9 @@ def extract_record(testbed, rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slo
     record = {}
 
     record['round'] = int(r)
+    record['init_slot'] = init_slot
+    record['response_slot'] = response_slot
+    record['final_slot'] = final_slot
     record['initiator'] = a
     record['responder'] = b
     record['pair'] = "{}-{}".format(a, b)
@@ -863,6 +888,13 @@ def gen_ping_pong_records(testbed, run, tdoa_src_dev_number=None, bias_corrected
 
     assert max_slot_dur % 2 == 0
 
+    slot_durations = [max_slot_dur]
+
+    # if slot_durations is None:
+    #     slot_durations = range(2, max_slot_dur+1, 2)
+    #
+    # assert all([x % 2 == 0 and x <= max_slot_dur for x in slot_durations])
+
     #ping_pong_initiator = testbed.devs[ping_pong_initiator_number]
 
     for (r, rx_events, tx_events) in gen_round_events(testbed, run):
@@ -879,6 +911,7 @@ def gen_ping_pong_records(testbed, run, tdoa_src_dev_number=None, bias_corrected
             if ping_pong_initiator_number == b:
                 continue
 
+
             multiplier = b if b < ping_pong_initiator_number else b-1
 
             start_slot = ping_pong_slots * multiplier
@@ -890,17 +923,18 @@ def gen_ping_pong_records(testbed, run, tdoa_src_dev_number=None, bias_corrected
                 start_slot -= 1
                 end_slot -= 1
 
-            for init_slot in range(start_slot, end_slot, max_slot_dur):
-                final_slot = init_slot + max_slot_dur
+            for slot_duration in slot_durations:
+                for init_slot in range(start_slot, end_slot, slot_duration):
+                    final_slot = init_slot + slot_duration
 
-                if final_slot > end_slot:
-                    break
+                    if final_slot > end_slot:
+                        break
 
-                for response_slot in range(init_slot+1, final_slot, 2):
-                    #print(b, multiplier, init_slot, response_slot, final_slot)
-                    rec = extract_record(testbed, rx_df, tx_df, r, ping_pong_initiator_number, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
-                    #print(rec['relative_drift'])
-                    yield rec
+                    for response_slot in range(init_slot+1, final_slot, 2):
+                        #print(b, multiplier, init_slot, response_slot, final_slot)
+                        rec = extract_record(testbed, rx_df, tx_df, r, ping_pong_initiator_number, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
+                        #print(rec['relative_drift'])
+                        yield rec
 
 
 def gen_new_delay_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, initiator_id=None, responder_id=None, num_exchanges=100):
@@ -993,6 +1027,7 @@ def apply_phase_dist_to_col(d):
 
 
 if __name__ == '__main__':
+
     import testbed.trento_a as trento_a
 
     it  = gen_ping_pong_records(trento_a, 'ping_pong_trento_a_source_4_11702', tdoa_src_dev_number=None, bias_corrected=True)

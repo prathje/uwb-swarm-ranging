@@ -17,6 +17,8 @@ def slugify(obj, *args):
         obj = " ".join(slugify(x) for x in obj)
 
     res = str(obj).strip().replace(' ', '_')
+
+
     if len(args) > 0:
         res += slugify(args)
     return re.sub(r'(?u)[^-\w.]', '', res)
@@ -106,3 +108,28 @@ def init_cache(path):
     global export_cache_dir
     export_cache_dir = path
     os.makedirs(export_cache_dir, exist_ok=True)
+
+
+def in_parallel(callbacks, parallel=True):
+    import threading
+
+    res = None
+    if parallel:
+        res = [None for cb in callbacks]
+        threads = []
+        for i, cb in enumerate(callbacks):
+            def wrapped_cb(idx, cb):
+                res[idx] = cb()
+
+            threads.append(threading.Thread(target=functools.partial(wrapped_cb, i, cb), args=()))
+
+        for t in threads:
+            t.start()
+
+        for t in threads:
+            t.join()
+    else:
+        res = [
+            cb() for cb in callbacks
+        ]
+    return res

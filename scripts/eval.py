@@ -3515,33 +3515,146 @@ def export_delay_exp_ping_pong(config, export_dir):
 
     use_bias_correction = True
 
-    for max_slots_dur in range(4, 52, 2):
-        logfiles = [
-            'ping_pong_trento_a_source_4_11702',
-            #'ping_pong_trento_a_source_4_11703',
-            #'ping_pong_trento_a_source_4_11704',
-            #'ping_pong_trento_a_source_4_11707',
-            #'ping_pong_trento_a_source_4_11708'
-        ]
+    def get_df(log, tdoa_src_dev_number, max_slots_dur):
+        def proc():
+            it = logs.gen_ping_pong_records(trento_a, log, tdoa_src_dev_number=tdoa_src_dev_number,
+                                            bias_corrected=use_bias_correction, max_slot_dur=max_slots_dur)
+            df = pd.DataFrame.from_records(it)
+            return add_df_cols(df, tdoa_src_dev_number)
 
-        def get_df(log, tdoa_src_dev_number):
-            def proc():
-                it = logs.gen_ping_pong_records(trento_a, log, tdoa_src_dev_number=tdoa_src_dev_number, bias_corrected=use_bias_correction, max_slot_dur=max_slots_dur)
-                df = pd.DataFrame.from_records(it)
-                return add_df_cols(df, tdoa_src_dev_number)
-            return utility.cached_dt_legacy(('extract_job_tdma_ping_pong_3', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
+        return utility.cached_dt_legacy( #todo: this was 3
+            ('extract_job_tdma_ping_pong_4', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
+
+    logfiles = [
+        'ping_pong_trento_a_source_4_750usec_slot_job_11928',
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11929',
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11930',
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11931',
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11932',
+        #'2024-02-28_ping_pong_200/job_11985.log',
+        #'2024-02-28_ping_pong_200/job_11985.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11986.tar.gz',
+        # 'ping_pong_trento_a_source_4_11703',
+        # 'ping_pong_trento_a_source_4_11704',
+        # 'ping_pong_trento_a_source_4_11707',
+        # 'ping_pong_trento_a_source_4_11708'
+    ]
+
+    initiator = 3
+    responder = 0
+
+    def prepare_df(df):
+
+        df = df[df['initiator'] == initiator]
+        df = df[df['responder'] == responder]
+
+        df['twr_tof_ss_avg'] = (df['twr_tof_ss'] + df['twr_tof_ss_reverse']) / 2
+
+        df['delay_b_ms'] = df['delay_b'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
+        df['delay_a_ms'] = df['delay_a'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
+
+        df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
+
+        df['dur_ms'] = df['delay_b_ms'] + df['delay_a_ms']
+        df['dur_ms_rounded'] = df['dur_ms'].apply(lambda x: np.round(x, decimals=1))
+
+        df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
+        df['ratio'] = df['linear_ratio']  # np.log10(df['linear_ratio'])
+        df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x, decimals=2))
+        df = df[df['round'] >= 20] # 20 rounds are approximatly 10 minutes after start of the experiment
+        return df
+    #
+    #
+    # if False:
+    #     for max_slots_dur in range(2, 52, 2):
+    #
+    #
+    #         dfs = in_parallel(
+    #             [functools.partial(get_df, log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles]
+    #         )
+    #
+    #
+    #         continue
+    #         active_df = pd.concat(dfs, ignore_index=True, copy=True)
+    #
+    #         active_df = prepare_df(active_df)
+    #
+    #         fig, ax = plt.subplots()
+    #
+    #         aggr = active_df.groupby('init_slot').agg(
+    #             {
+    #                 'twr_tof_ds_err': 'std',
+    #                 'twr_tof_ss_err': 'std',
+    #                 'twr_tof_ss_reverse_err': 'std',
+    #                 'twr_tof_ss_avg': 'std',
+    #                 'linear_ratio': 'mean',
+    #                 'ratio_rounded': 'count',
+    #                 'init_slot': 'mean'
+    #             }
+    #         )
+    #
+    #         aggr.plot.line('init_slot', 'twr_tof_ds_err', alpha=0.5, ax=ax, label='twr_tof_ds_err std', c='C0')
+    #         plt.show()
+    #         exit()
+    #
+    #
+    # if False:
+    #
+    #     dfs = [
+    #         get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles for max_slots_dur in range(6, 201, 4)
+    #     ]
+    #
+    #     print(dfs)
+    #
+    #     active_df = pd.concat(dfs, ignore_index=True, copy=True)
+    #
+    #     active_df = prepare_df(active_df)
+    #
+    #     fig, ax = plt.subplots()
+    #
+    #     def aggr(df):
+    #         return df.groupby('dur_ms_rounded').agg(
+    #             {
+    #                 'twr_tof_ds_err': 'std',
+    #                 'twr_tof_ss_err': 'std',
+    #                 'twr_tof_ss_reverse_err': 'std',
+    #                 'twr_tof_ss_avg': 'std',
+    #                 'linear_ratio': 'mean',
+    #                 'ratio_rounded': 'count',
+    #                 'dur_ms_rounded': 'mean'
+    #             }
+    #         )
+    #
+    #     df_15 = active_df[active_df['ratio_rounded'] <= 0.15]
+    #     df_center = active_df[(active_df['ratio_rounded'] > 0.15) & (active_df['ratio_rounded'] < 0.85)]
+    #     df_85 = active_df[active_df['ratio_rounded'] >= 0.85]
+    #     df_mean = active_df[active_df['ratio_rounded'] == 0.50]
+    #
+    #     df_15 = aggr(df_15)
+    #     df_center = aggr(df_center)
+    #     df_85 = aggr(df_85)
+    #     df_mean = aggr(df_mean)
+    #
+    #     df_15.plot.line('dur_ms_rounded', 'twr_tof_ds_err', alpha=0.5, ax=ax, label='<= 15%', c='C0')
+    #     df_center.plot.line('dur_ms_rounded', 'twr_tof_ds_err', alpha=0.5, ax=ax, label='>15% < 85%', c='C1')
+    #     df_85.plot.line('dur_ms_rounded', 'twr_tof_ds_err', alpha=0.5, ax=ax, label='>= 85%', c='C2')
+    #     df_mean.plot.line('dur_ms_rounded', 'twr_tof_ds_err', alpha=0.5, ax=ax, label='mean', c='C3')
+    #
+    #     plt.show()
+    #
+    #     exit()
+
+
+    for max_slots_dur in range(6, 30, 4):
 
         dfs = [
-            get_df(log, tdoa_src_dev_number=None) for log in logfiles
+            get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles
         ]
 
         active_df = pd.concat(dfs, ignore_index=True, copy=True)
 
-        initiator = 3
-        responder = 0
-
-
-        passive_devs = [1]
+        active_df = prepare_df(active_df)
+        passive_devs = [] #[1]
 
         # 3,4, 3to4
         # 5, 4 to 5
@@ -3551,39 +3664,21 @@ def export_delay_exp_ping_pong(config, export_dir):
         # 9 3.5 to 4.5
         # 10 3.5 to 4.5
         # 12 3 to 4
+        if len(passive_devs):
+            dfs = [
+                get_df(log, tdoa_src_dev_number=d, max_slots_dur=max_slots_dur) for log in logfiles for d in passive_devs
+            ]
+            passive_df = pd.concat(dfs, ignore_index=True, copy=True)
+            passive_df = prepare_df(passive_df)
+        else:
+            passive_df = None
 
-        dfs = [
-            get_df(log, tdoa_src_dev_number=d) for log in logfiles for d in passive_devs
-        ]
-
-        passive_df = pd.concat(dfs, ignore_index=True, copy=True)
 
         # TODO add passive_df!!
         # active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
         #                                                           use_bias_correction=True, skip_to_round=0,
         #                                                           up_to_round=None)
 
-        def prepare_df(df):
-
-            df = df[df['initiator'] == initiator]
-            df = df[df['responder'] == responder]
-
-
-            df['delay_b_ms'] = df['delay_b'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
-            df['delay_a_ms'] = df['delay_a'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
-
-            df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
-
-            df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
-            df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
-            df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x, decimals=2))
-            df = df[df['round'] > 50]
-            return df
-
-        active_df = prepare_df(active_df)
-        passive_df = prepare_df(passive_df)
-
-        active_df['twr_tof_ss_avg'] = (active_df['twr_tof_ss'] + active_df['twr_tof_ss_reverse']) / 2
 
         # active_df = active_df[active_df['pair'] == "0-3"]
         # print(active_df['ratio_rounded'].unique())
@@ -3593,12 +3688,14 @@ def export_delay_exp_ping_pong(config, export_dir):
                 'twr_tof_ss_err': 'std',
                 'twr_tof_ss_reverse_err': 'std',
                 'twr_tof_ss_avg': 'std',
-                'linear_ratio': 'mean'
+                'linear_ratio': 'mean',
+                'ratio_rounded': 'count'
             }
         )
 
-        #print(active_df_aggr)
-        #exit()
+        # we filter out ratios with less than 2 samples
+        active_df_aggr = active_df_aggr[active_df_aggr['ratio_rounded'] > 1]
+
 
         # active_df_aggr.plot.scatter(x=active_df_aggr['ratio_rounded'], y='twr_tof_ds_err')
         # TODO: Fit curve?!
@@ -3631,12 +3728,13 @@ def export_delay_exp_ping_pong(config, export_dir):
             return np.sqrt(
                 (0.5 * b_a_std) ** 2
                 + (0.5 * linear_ratios * a_b_std) ** 2
-                + (0.5 * linear_ratios * a_b_std) ** 2
+                + (0.5 * (1-linear_ratios) * a_b_std) ** 2
             )
 
         data_xs = active_df_aggr['linear_ratio'].to_numpy()
         data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
         data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
+
 
         popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
         pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
@@ -3694,9 +3792,12 @@ def export_delay_exp_ping_pong(config, export_dir):
             aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
                 {
                     'tdoa_est_ds': 'std',
-                    'linear_ratio': 'mean'
+                    'linear_ratio': 'mean',
+                    'ratio_rounded': 'count'
                 }
             )
+
+            aggr_filt_df = aggr_filt_df[aggr_filt_df['ratio_rounded'] > 1]
 
             data_xs = aggr_filt_df['linear_ratio'].to_numpy()
             data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
@@ -3705,7 +3806,11 @@ def export_delay_exp_ping_pong(config, export_dir):
             def fit(linear_ratios, a_p_std, b_p_std):
                 return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
 
-            passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
+            try:
+                passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
+            except Exception as e:
+                print("Error", e)
+                passive_popt, passive_pcov = ([0.0, 0.0], [])
             pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
 
             residuals = data_ys - fit(data_xs, *passive_popt)
@@ -3747,44 +3852,55 @@ def export_delay_exp_ping_pong(config, export_dir):
         # ax.set_ylim([0.0, 0.25])
         # ax.set_xlim([-100.0, +100.0])
 
-        plt.savefig("{}/std_fit_ping_pong_{}.pdf".format(export_dir, max_slots_dur), bbox_inches='tight')  # , pad_inches=0)
+        plt.savefig("{}/std_fit_ping_pong_{}_750usec.pdf".format(export_dir, max_slots_dur), bbox_inches='tight')  # , pad_inches=0)
 
         plt.close()
 
 def export_delay_exp_new_delay(config, export_dir):
 
-    testbed = trento_b
+    testbed = trento_a
+
+    duration_ms = 20
+
+    logfiles_20 = [
+        '2024-02-27-new_delay_exp_20_11938',
+        '2024-02-27-new_delay_exp_20_11939',
+        '2024-02-27-new_delay_exp_20_11940',
+        '2024-02-27-new_delay_exp_20_11941',
+        '2024-02-27-new_delay_exp_20_11942',
+        #'2024-02-28_new_delay_exp_20ms/job_11976.tar.gz',
+        #'2024-02-28_new_delay_exp_20ms/job_11977.tar.gz',
+         # '2024-02-28_new_delay_exp_20ms/job_11978.tar.gz',
+         # '2024-02-28_new_delay_exp_20ms/job_11979.tar.gz',
+         # '2024-02-28_new_delay_exp_20ms/job_11980.tar.gz',
+         # '2024-02-28_new_delay_exp_20ms/job_11981.tar.gz',
+         # '2024-02-28_new_delay_exp_20ms/job_11982.tar.gz',
+         # '2024-02-28_new_delay_exp_20ms/job_11983.tar.gz'
+    ]
+
+    logfiles_20_high_rate = [
+        #'2024-02-27-new_delay_exp_20_100_samples_11961',
+        #'2024-02-27-new_delay_exp_20_100_samples_11962',
+        #'2024-02-27-new_delay_exp_20_100_samples_11963'
+    ]
+
     logfiles_10 = [
-        'new_delays_11764',
-        'new_delays_11765',
-        'new_delays_11766',
-        'new_delays_11767',
-        'new_delays_11768',
-        'new_delays_11769',
-        'new_delays_11770',
-        'new_delays_11771',
-        'new_delays_11772',
-        'new_delays_11773',
-        'new_delays_11778',
-        #'new_delays_11779',
-        'new_delays_11780',
-        'new_delays_11781',
-        'new_delays_11782',
-        #'new_delay_exp_11754',
-        #'new_delay_exp_11755',
-        #'new_delay_exp_11756',
-        #'new_delay_exp_11757',
-        #'new_delay_exp_11758',
+        #'new_delay_exp_11933',
+        #'2024-02-27-new_delay_exp_10_11934',
+        #'2024-02-27-new_delay_exp_10_11935',
+        #'2024-02-27-new_delay_exp_10_11936',
+        '2024-02-27-new_delay_exp_10_11937'
     ]
 
-    logfiles_5 = [
-        'exp_new_delays_11796_5ms',
-    ]
 
-    logfiles = logfiles_5
+    if duration_ms == 20:
+        logfiles = logfiles_20
+    else:
+        logfiles = logfiles_10
 
-    initiator_id = 0
-    responder_id = 1
+    initiator_id = 3
+    responder_id = 2
+
     num_exchanges = 100
     use_bias_correction = True
     def get_df(log, tdoa_src_dev_number):
@@ -3801,7 +3917,7 @@ def export_delay_exp_new_delay(config, export_dir):
     active_df = pd.concat(dfs, ignore_index=True, copy=True)
 
 
-    passive_devs = [3,6,9]
+    passive_devs = [0,1]
 
     # 3,4, 3to4
     # 5, 4 to 5
@@ -3832,37 +3948,46 @@ def export_delay_exp_new_delay(config, export_dir):
         df['delay_b_ms'] = df['delay_b'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
         df['delay_a_ms'] = df['delay_a'].apply(lambda x: convert_ts_to_sec(x) * 1000.0)
 
+        df = df[(df['delay_a_ms'] + df['delay_b_ms']) < (duration_ms+1)]
+
         df = df[df['delay_a_ms'].notnull() & df['delay_b_ms'].notnull()]
 
         df['linear_ratio'] = df['delay_b_ms'] / (df['delay_a_ms'] + df['delay_b_ms'])
         df['ratio'] = df['linear_ratio']#np.log10(df['linear_ratio'])
         df['ratio_rounded'] = df['ratio'].apply(lambda x: np.round(x, decimals=2))
 
-        df = df[df['round'] > 100]
-        df = df[df['ratio_rounded'] >= 0.2]
-        df = df[df['ratio_rounded'] <= 0.8]
+
+
+        df = df[df['round'] > 50] # 100 rounds roughly 10 minutes
+        #df = df[df['ratio_rounded'] >= 0.1]
+        #df = df[df['ratio_rounded'] <= 0.8]
 
         return df
 
     active_df = prepare_df(active_df)
     passive_df = prepare_df(passive_df)
 
+    #active_df.plot.scatter('ratio_rounded', 'twr_tof_ds_err')
+    #plt.show()
+
     active_df['twr_tof_ss_avg'] = (active_df['twr_tof_ss'] + active_df['twr_tof_ss_reverse']) / 2
+
 
     # active_df = active_df[active_df['pair'] == "0-3"]
     # print(active_df['ratio_rounded'].unique())
     active_df_aggr = active_df.groupby('ratio_rounded').agg(
         {
-            'twr_tof_ds_err': 'std',
+            'twr_tof_ds_err': 'mean',
             'twr_tof_ss_err': 'std',
             'twr_tof_ss_reverse_err': 'std',
             'twr_tof_ss_avg': 'std',
-            'linear_ratio': 'mean'
+            'linear_ratio': 'mean',
+            'ratio_rounded': 'count',
         }
     )
 
-    #print(active_df_aggr)
-    #exit()
+    # we filter out ratios with less than 2 samples, this can happen if we have a half delay warning for example!
+    active_df_aggr = active_df_aggr[active_df_aggr['ratio_rounded'] > 1]
 
     # active_df_aggr.plot.scatter(x=active_df_aggr['ratio_rounded'], y='twr_tof_ds_err')
     # TODO: Fit curve?!
@@ -3895,14 +4020,15 @@ def export_delay_exp_new_delay(config, export_dir):
         return np.sqrt(
             (0.5 * b_a_std) ** 2
             + (0.5 * linear_ratios * a_b_std) ** 2
-            + (0.5 * linear_ratios * a_b_std) ** 2
+            + (0.5 * (1-linear_ratios) * a_b_std) ** 2
         )
 
     data_xs = active_df_aggr['linear_ratio'].to_numpy()
     data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
     data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
 
-    popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
+
+    popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys, p0=[0.04, 0.04])
     pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
 
     residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
@@ -3926,7 +4052,7 @@ def export_delay_exp_new_delay(config, export_dir):
         )
 
     fig, ax = plt.subplots()
-    plt.plot(data_xs_ratio, pred_twr_ys, alpha=0.5, linestyle='--', color=colors[0])
+    #plt.plot(data_xs_ratio, pred_twr_ys, alpha=0.5, linestyle='--', color=colors[0])
 
     # label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100))
 
@@ -3946,47 +4072,57 @@ def export_delay_exp_new_delay(config, export_dir):
 
         plt.scatter(x=xs, y=ys, c=color, s=2.5)
 
-    scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
+    #scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
+    #active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
     active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
     # active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
     # active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
     # active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
 
-    for (i, passive_dev) in enumerate(passive_devs):
-        filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
+    if False:
+        for (i, passive_dev) in enumerate(passive_devs):
+            filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
 
-        aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
-            {
-                'tdoa_est_ds': 'std',
-                'linear_ratio': 'mean'
-            }
-        )
+            print(filt_df[filt_df['ratio_rounded'] == 0.8])
 
-        data_xs = aggr_filt_df['linear_ratio'].to_numpy()
-        data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
-        data_ys = aggr_filt_df['tdoa_est_ds'].to_numpy()
+            aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
+                {
+                    'tdoa_est_ds': 'std',
+                    'linear_ratio': 'mean',
+                    'ratio_rounded': 'count'
+                }
+            )
 
-        def fit(linear_ratios, a_p_std, b_p_std):
-            return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
+            # we filter out ratios with less than 2 samples, this can happen if we have a half delay warning for example!
+            aggr_filt_df = aggr_filt_df[aggr_filt_df['ratio_rounded'] > 1]
 
-        passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
-        pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
+            print(aggr_filt_df)
 
-        residuals = data_ys - fit(data_xs, *passive_popt)
-        ss_res = np.sum(residuals ** 2)
-        ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
-        print("Passive {}".format(i), np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+            data_xs = aggr_filt_df['linear_ratio'].to_numpy()
+            data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+            data_ys = aggr_filt_df['tdoa_est_ds'].to_numpy()
 
-        print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1], np.round(popt[0] * 100, 2),
-              np.round(popt[1] * 100, 2), np.round(passive_popt[0] * 100, 2), np.round(passive_popt[1] * 100, 2))
+            def fit(linear_ratios, a_p_std, b_p_std):
+                return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
 
-        scatter_bins(filt_df, 'tdoa_est_ds', colors[i + 1])
+            passive_popt, passive_pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys)
+            pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0], passive_popt[1])
 
-        plt.plot(data_xs_ratio, pred_tdoa_ys, color=colors[i + 1], linestyle='--', alpha=0.5)
-        # label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
+            residuals = data_ys - fit(data_xs, *passive_popt)
+            ss_res = np.sum(residuals ** 2)
+            ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+            print("Passive {}".format(i), np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
 
-        aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA $L{}$ SD".format(i + 1), color=colors[i + 1],
-                               style='-')
+            print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1], np.round(popt[0] * 100, 2),
+                  np.round(popt[1] * 100, 2), np.round(passive_popt[0] * 100, 2), np.round(passive_popt[1] * 100, 2))
+
+            scatter_bins(filt_df, 'tdoa_est_ds', colors[i + 1])
+
+            plt.plot(data_xs_ratio, pred_tdoa_ys, color=colors[i + 1], linestyle='--', alpha=0.5)
+            # label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
+
+            aggr_filt_df.plot.line(y='tdoa_est_ds', ax=ax, label="TDoA $L{}$ SD".format(i + 1), color=colors[i + 1],
+                                   style='-')
 
     def formatter(x):
         delay_b, delay_a = calc_delays_from_exp(x)
@@ -3995,13 +4131,13 @@ def export_delay_exp_new_delay(config, export_dir):
         return r'${{{}}}:{{{}}}$'.format(delay_b, delay_a)
 
     #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
-    ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    #todo: ax.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
     fig.set_size_inches(6.0, 6.0)
 
     ax.set_xlabel('Delay Ratio')
     ax.set_ylabel('SD [cm]')
 
-    ax.set_ylim([None, 0.05])
+    #todo: ax.set_ylim([None, 0.05])
 
     plt.grid(color='lightgray', linestyle='dashed')
 
@@ -4011,7 +4147,7 @@ def export_delay_exp_new_delay(config, export_dir):
     # ax.set_ylim([0.0, 0.25])
     # ax.set_xlim([-100.0, +100.0])
 
-    plt.savefig("{}/std_fit_new.pdf".format(export_dir), bbox_inches='tight')  # , pad_inches=0)
+    plt.savefig("{}/std_fit_{}_ms.pdf".format(export_dir, duration_ms), bbox_inches='tight')  # , pad_inches=0)
 
     plt.close()
 
@@ -4241,8 +4377,8 @@ if __name__ == '__main__':
         #export_delay_exp,
         #export_ds_cfo_active_std_comparison,
         #export_ds_cfo_passive_std_comparison
-        export_delay_exp_new_delay
-        #export_delay_exp_ping_pong
+        #export_delay_exp_new_delay
+        export_delay_exp_ping_pong
     ]
 
     #for step in progressbar.progressbar(steps, redirect_stdout=True):
