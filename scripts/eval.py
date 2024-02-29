@@ -3515,6 +3515,8 @@ def export_delay_exp_ping_pong(config, export_dir):
 
     use_bias_correction = True
 
+    assume_twr_equal_noise = True
+
     def get_df(log, tdoa_src_dev_number, max_slots_dur):
         def proc():
             it = logs.gen_ping_pong_records(trento_a, log, tdoa_src_dev_number=tdoa_src_dev_number,
@@ -3526,18 +3528,23 @@ def export_delay_exp_ping_pong(config, export_dir):
             ('extract_job_tdma_ping_pong_4', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
 
     logfiles = [
-        'ping_pong_trento_a_source_4_750usec_slot_job_11928',
-        #'ping_pong_trento_a_source_4_750usec_slot_job_11929',
-        #'ping_pong_trento_a_source_4_750usec_slot_job_11930',
-        #'ping_pong_trento_a_source_4_750usec_slot_job_11931',
-        #'ping_pong_trento_a_source_4_750usec_slot_job_11932',
-        #'2024-02-28_ping_pong_200/job_11985.log',
-        #'2024-02-28_ping_pong_200/job_11985.tar.gz',
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11928', # these runs are a bit erroneous
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11930',  # these runs are a bit erroneous
+        #'ping_pong_trento_a_source_4_750usec_slot_job_11931',  # these runs are a bit erroneous
+        '2024-02-28_ping_pong_200/job_11985.tar.gz',
         #'2024-02-28_ping_pong_200/job_11986.tar.gz',
-        # 'ping_pong_trento_a_source_4_11703',
-        # 'ping_pong_trento_a_source_4_11704',
-        # 'ping_pong_trento_a_source_4_11707',
-        # 'ping_pong_trento_a_source_4_11708'
+        #'2024-02-28_ping_pong_200/job_11987.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11988.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11989.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11990.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11991.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11992.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11993.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11994.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11995.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11996.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11997.tar.gz',
+        #'2024-02-28_ping_pong_200/job_11998.tar.gz',
     ]
 
     initiator = 3
@@ -3644,9 +3651,7 @@ def export_delay_exp_ping_pong(config, export_dir):
     #
     #     exit()
 
-
-    for max_slots_dur in range(6, 30, 4):
-
+    for max_slots_dur in range(2, 201, 4):#[10, 14, 18, 22] + list(range(6, 198+1, 4*6)):
         dfs = [
             get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles
         ]
@@ -3654,7 +3659,7 @@ def export_delay_exp_ping_pong(config, export_dir):
         active_df = pd.concat(dfs, ignore_index=True, copy=True)
 
         active_df = prepare_df(active_df)
-        passive_devs = [] #[1]
+        passive_devs = []
 
         # 3,4, 3to4
         # 5, 4 to 5
@@ -3724,12 +3729,22 @@ def export_delay_exp_ping_pong(config, export_dir):
         num_bins = 10
         colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
 
-        def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
-            return np.sqrt(
-                (0.5 * b_a_std) ** 2
-                + (0.5 * linear_ratios * a_b_std) ** 2
-                + (0.5 * (1-linear_ratios) * a_b_std) ** 2
-            )
+
+        if assume_twr_equal_noise:
+            def calc_predicted_tof_std(linear_ratios, a_b_std):
+                b_a_std = a_b_std
+                return np.sqrt(
+                    (0.5 * b_a_std) ** 2
+                    + (0.5 * linear_ratios * a_b_std) ** 2
+                    + (0.5 * (1 - linear_ratios) * a_b_std) ** 2
+                )
+        else:
+            def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
+                return np.sqrt(
+                    (0.5 * b_a_std) ** 2
+                    + (0.5 * linear_ratios * a_b_std) ** 2
+                    + (0.5 * (1-linear_ratios) * a_b_std) ** 2
+                )
 
         data_xs = active_df_aggr['linear_ratio'].to_numpy()
         data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
@@ -3737,9 +3752,14 @@ def export_delay_exp_ping_pong(config, export_dir):
 
 
         popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys)
-        pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
+        if len(popt) > 1:
+            pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
+            residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
+        else:
+            pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0])
+            residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
+            popt = [popt[0], popt[0]] # we pretend that we are still fitting two parameters
 
-        residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
         ss_res = np.sum(residuals ** 2)
         ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
         print("Active R2", np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
@@ -3782,9 +3802,9 @@ def export_delay_exp_ping_pong(config, export_dir):
 
         scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
         active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
-        # active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
-        # active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
-        # active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
+        active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
+        active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
+        active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
 
         for (i, passive_dev) in enumerate(passive_devs):
             filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
@@ -3842,7 +3862,7 @@ def export_delay_exp_ping_pong(config, export_dir):
         ax.set_xlabel('Delay Ratio')
         ax.set_ylabel('SD [cm]')
 
-        ax.set_ylim([None, 0.05])
+        #ax.set_ylim([None, 0.05])
 
         plt.grid(color='lightgray', linestyle='dashed')
 
@@ -4075,9 +4095,9 @@ def export_delay_exp_new_delay(config, export_dir):
     #scatter_bins(active_df, 'twr_tof_ds_err', colors[0])
     #active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
     active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax, label="ToF SD", style='-', color=colors[0])
-    # active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
-    # active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
-    # active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
 
     if False:
         for (i, passive_dev) in enumerate(passive_devs):
