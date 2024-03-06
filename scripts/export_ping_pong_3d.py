@@ -28,9 +28,9 @@ use_bias_correction = True
 
 logfiles = [
         '2024-02-28_ping_pong_200/job_11985.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11986.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11987.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11988.tar.gz',
+        '2024-02-28_ping_pong_200/job_11986.tar.gz',
+        '2024-02-28_ping_pong_200/job_11987.tar.gz',
+        '2024-02-28_ping_pong_200/job_11988.tar.gz',
         # '2024-02-28_ping_pong_200/job_11989.tar.gz',
         # '2024-02-28_ping_pong_200/job_11990.tar.gz',
         # '2024-02-28_ping_pong_200/job_11991.tar.gz',
@@ -43,20 +43,20 @@ logfiles = [
         # '2024-02-28_ping_pong_200/job_11998.tar.gz',
 ]
 
-
-
-
-
 max_slot_durs = list(range(2, 201, 4))
 
-def export_ping_pong_3d( export_dir):
+def export_ping_pong_3d(export_dir):
 
         dfs = [
             get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles for max_slots_dur in max_slot_durs
         ]
 
         active_df = pd.concat(dfs, ignore_index=True, copy=True)
-        active_df = prepare_df(active_df)
+        active_df = prepare_df(active_df, initiator=3, responder=1, min_round=50)
+
+        active_df['ratio_rounded'] = active_df['ratio_rounded'].apply(lambda x: np.round(x*5.0, decimals=1)/5.0)
+
+        active_df['dur_ms_rounded'] = active_df['dur_ms_rounded'].apply(lambda x: np.round(x * 5.0, decimals=2) / 5.0)
 
 
 
@@ -81,7 +81,7 @@ def export_ping_pong_3d( export_dir):
 
         active_df_aggr = active_df.groupby(['dur_ms_rounded', 'ratio_rounded']).agg(
             {
-                'twr_tof_ds_err': 'std',
+                'twr_tof_ds_err': 'mean',
                 'twr_tof_ss_err': 'std',
                 'twr_tof_ss_reverse_err': 'std',
                 'twr_tof_ss_avg': 'std',
@@ -103,8 +103,17 @@ def export_ping_pong_3d( export_dir):
         y = active_df_aggr['ratio_rounded'].to_numpy()
         z = active_df_aggr['twr_tof_ds_err'].to_numpy()
 
-        ax.scatter(x, y, z, alpha=0.6, c=z, cmap='viridis')
-        #ax.plot_trisurf(x, y, z, cmap='viridis', edgecolor='none')
+        # x = active_df_aggr['delay_b_ms_rounded'].to_numpy()
+        # y = active_df_aggr['delay_a_ms_rounded'].to_numpy()
+        # z = active_df_aggr['twr_tof_ds_err'].to_numpy()
+
+        #ax.scatter(x, y, z, alpha=0.6, c=z, cmap='viridis')
+
+        # To use a custom hillshading mode, override the built-in shading and pass
+        # in the rgb colors of the shaded surface calculated from "shade".
+
+
+        ax.plot_trisurf(x, y, z, cmap='viridis', edgecolor='none')
         plt.show()
 
 if __name__ == '__main__':

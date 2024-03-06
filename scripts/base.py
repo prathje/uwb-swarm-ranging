@@ -60,3 +60,7 @@ def convert_m_to_ts(m):
 
 def ci_to_rd(ci):
     return 1.0 - ci*(DWT_FREQ_OFFSET_MULTIPLIER * DWT_HERTZ_TO_PPM_MULTIPLIER_CHAN_5 / 1.0e6)
+
+
+def rd_to_ci(rd):
+    return (1.0 - rd) / (DWT_FREQ_OFFSET_MULTIPLIER * DWT_HERTZ_TO_PPM_MULTIPLIER_CHAN_5 / 1.0e6)

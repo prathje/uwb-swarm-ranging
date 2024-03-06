@@ -24,38 +24,24 @@ import pandas as pd
 
 from export import add_df_cols
 
-def cache_df(log, tdoa_src_dev_number, max_slots_dur):
-    def proc():
-        print("Processing", log, tdoa_src_dev_number, max_slots_dur)
-        it = logs.gen_ping_pong_records(trento_a, log, tdoa_src_dev_number=tdoa_src_dev_number,
-                                        bias_corrected=use_bias_correction, max_slot_dur=max_slots_dur)
-        df = pd.DataFrame.from_records(it)
-        return add_df_cols(df, tdoa_src_dev_number)
-
-    return utility.cached_dt_legacy( #todo: this was 3
-        ('extract_job_tdma_ping_pong_4', log, tdoa_src_dev_number, use_bias_correction, max_slots_dur), proc)
-
-
+from export_drift_rate import get_noise_df
 use_bias_correction = True
 
-#max_slot_durs = [66, 22, 44, 88, 98, 102]
-max_slot_durs = list(range(18, 42+1, 8))
+max_slot_durs = list(range(10, 201, 4))
+#max_slot_durs = list(range(74, 90+1, 4))
 #max_slot_durs = list(range(10, 26, 4))
-
-# dev 3 is our initiator
-passive_devices = [None, 0, 1, 2, 4, 5, 6]
 
 logfiles = [
         '2024-02-28_ping_pong_200/job_11985.tar.gz',
         '2024-02-28_ping_pong_200/job_11986.tar.gz',
         '2024-02-28_ping_pong_200/job_11987.tar.gz',
         '2024-02-28_ping_pong_200/job_11988.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11989.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11990.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11991.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11992.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11993.tar.gz',
-        # '2024-02-28_ping_pong_200/job_11994.tar.gz',
+        '2024-02-28_ping_pong_200/job_11989.tar.gz',
+        '2024-02-28_ping_pong_200/job_11990.tar.gz',
+        '2024-02-28_ping_pong_200/job_11991.tar.gz',
+        '2024-02-28_ping_pong_200/job_11992.tar.gz',
+        '2024-02-28_ping_pong_200/job_11993.tar.gz',
+        '2024-02-28_ping_pong_200/job_11994.tar.gz',
         # '2024-02-28_ping_pong_200/job_11995.tar.gz',
         # '2024-02-28_ping_pong_200/job_11996.tar.gz',
         # '2024-02-28_ping_pong_200/job_11997.tar.gz',
@@ -74,11 +60,10 @@ logfiles = [
 
 def gen_processes():
     for logfile in logfiles:
-        for max_slots in max_slot_durs:
-            for tdoa_src_dev_number in passive_devices:
-                p = Process(target=cache_df, args=(logfile, tdoa_src_dev_number, max_slots))
-                p.daemon = True
-                yield p
+        for dur in max_slot_durs:
+            p = Process(target=get_noise_df, args=(logfile, dur))
+            p.daemon = True
+            yield p
 
 
 if __name__ == "__main__":

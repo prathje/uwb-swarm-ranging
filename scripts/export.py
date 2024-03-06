@@ -55,9 +55,11 @@ DEFAULT_CROP = False
 def save_and_crop(path, *args, **kwargs):
 
     filename, file_extension = os.path.splitext(path)
+
+    crop = kwargs.pop('crop', DEFAULT_CROP)
     plt.savefig(path, *args, **kwargs)
 
-    if kwargs.get('crop', DEFAULT_CROP):
+    if crop:
         if file_extension == ".pdf":
             cropped_path = filename + "_cropped" + file_extension
             subprocess.run(["pdfcrop", path, cropped_path], stdout=subprocess.DEVNULL)

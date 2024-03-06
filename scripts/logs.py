@@ -1,6 +1,6 @@
 import numpy as np
 
-from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
+from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd, rd_to_ci
 import ctypes
 
 from testbed_to_c_vals import create_inference_matrix
@@ -436,49 +436,187 @@ def gen_all_rx_events(testbed, run, skip_to_round=None, until_round=None):
         for rx_event in rx_events:
             yield rx_event
 
+def extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver, bias_corrected=True):
+
+    rel_rx = rx_df[(rx_df['own_number'] == receiver) & (rx_df['rx_number'] == transmitter)]
+
+    last_rx_ts = None
+    last_tx_ts = None
+
+    for index, row in rel_rx.iterrows():
+
+        poss_txs = tx_df[(tx_df['own_number'] == transmitter) & (tx_df['tx_round'] == row['rx_round']) & (tx_df['tx_slot'] == row['rx_slot'])]
+
+        if len(poss_txs.index) >= 1:
+            rel_tx = poss_txs.iloc[0]
+        else:
+            continue    # we could not find the relevant transmission!
+
+        rx_ts = row['bias_corrected_rx_ts' if bias_corrected else 'rx_ts']
+        tx_ts = rel_tx['tx_ts']
+
+        # correct for overflowing timestamps
+        if last_rx_ts is not None and rx_ts < last_rx_ts:
+            rx_ts += DS_OVERFLOW_VAL
+
+        # print(transmitter, receiver, row, rel_tx)
+        # if last_rx_ts and last_tx_ts:
+        #     print(rx_ts, last_rx_ts, convert_ts_to_sec(rx_ts - last_rx_ts), convert_ts_to_sec(tx_ts - last_tx_ts))
+        #     exit()
+
+        last_rx_ts = rx_ts
+
+        if last_tx_ts is not None and tx_ts < last_tx_ts:
+            tx_ts += DS_OVERFLOW_VAL
+        last_tx_ts = tx_ts
+
+
+        d = {
+            'tx_number': rel_tx['own_number'],
+            'rx_number': row['own_number'],
+            'round': row['rx_round'],
+            'slot': row['rx_slot'],
+            'rx_ts': rx_ts,
+            'tx_ts': tx_ts,
+            'rx_ci': row['ci']
+        }
+
+        yield d
+
+import math
+import scipy
+from scipy import stats
+
+# alpha=0.01 corresponds to 99% confidence interval
+def calc_ci_of_sd(sd, num, alpha=0.01):
+    low = np.sqrt(((num-1)*(sd**2))/scipy.stats.chi2.ppf(1.0-alpha/2.0, num - 1))
+    up = np.sqrt(((num-1)*(sd**2))/scipy.stats.chi2.ppf(alpha/2.0, num - 1))
+    return (low, up)
+
+def estimate_noise_std_with_lls_grouped(pairs, group_size=5):
+    df = pd.DataFrame.from_records(pairs)
+    if len(df.index) > 0:
+
+        # we build the respectice matrices
+        coeff = np.asarray([[r['tx_ts'], -1] for (i, r) in df.iterrows()])
+        ordinate = df['rx_ts'].to_numpy()
+
+        group_size = math.floor(group_size)
+
+        num_groups = max(1, math.floor(len(df.index)/group_size))
+
+        group_coeff_list = np.array_split(coeff, num_groups)
+        ordinate_list = np.array_split(ordinate, num_groups)
+
+        overall_sum_of_squared_residuals = 0.0
+        overall_num = 0
+
+        xs = []
+        for g_coeff, g_ord in zip(group_coeff_list, ordinate_list):
+
+            if len(g_coeff) >= group_size:
+                g_coeff = np.asarray(g_coeff[0:group_size])
+                g_ord = np.asarray(g_ord[0:group_size])
+
+            if len(g_coeff) >= 4:
+                x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(g_coeff, g_ord, rcond=-1)
+                group_sample_variance = sum_of_squared_residuals / (len(g_coeff) - 1)
+
+                overall_sum_of_squared_residuals += sum_of_squared_residuals[0]
+                overall_num += len(g_coeff)
+                xs.append(x[0])
+
+        sample_variance = overall_sum_of_squared_residuals / (overall_num - 1)
+        ci_low, ci_up = calc_ci_of_sd(np.sqrt(sample_variance), overall_num)
+        ci_low, ci_up = (convert_ts_to_m(ci_low), convert_ts_to_m(ci_up))
+
+        if len(xs) > 0:
+            x_mean = np.nanmean(xs, axis=0)
+            x_median = np.nanmedian(xs, axis=0)
+        else:
+            x_mean = None
+            x_median = None
+        #print(len(df.index), convert_ts_to_m(np.sqrt(sample_variance)))
+
+        #print(df)
+
+        return convert_ts_to_m(np.sqrt(sample_variance)), ci_low, ci_up, x_mean, x_median, overall_sum_of_squared_residuals, overall_num
+
+    return None
+
+def estimate_rx_std_with_lls_rx_fit(rows):
+    rows = list(rows)
+
+    # we build the respective matrices
+    coeff = np.asarray([[r['tx_ts'], -1] for r in rows])
+    ordinate = np.asarray([r['rx_ts'] for r in rows])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+    sample_variance = sum_of_squared_residuals / (len(rows) - 2) # it is minus 2 since we have 1 feature to match
+
+    return {
+        'sample_variance': sample_variance,
+        'ref_ts': x[1],
+        'ref_rd': x[0],
+        'num': len(rows),
+        'ssr': sum_of_squared_residuals
+    }
+
+def estimate_rx_std_with_lls_cfo_fit(rows, method='mean'):
+    rows = list(rows)
+    cis = np.asarray([r['rx_ci'] for r in rows])
+
+    rds = np.asarray([ci_to_rd(r['rx_ci']) for r in rows])
+
+    ref_ci = np.median(cis) if method == 'median' else np.mean(cis)
+    ref_rd_from_ci = ci_to_rd(ref_ci)
+    ref_rd = ref_rd_from_ci # np.median(rds) if method == 'median' else np.mean(rds)
+
+    coeff = np.asarray([[-1] for r in rows]) # the absolute time we subtract
+    ordinate = np.asarray([[r['tx_ts'] * ref_rd - r['rx_ts']] for r in rows])
+
+    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(coeff, ordinate, rcond=-1)
+    sample_variance = sum_of_squared_residuals / (len(rows) - 2)  # it is minus 2 since we have 1 feature to match
+
+    return {
+        'sample_variance': sample_variance,
+        'ref_ts': x[0],
+        'ref_rd': ref_rd,
+        'ref_rd_sd': np.std(rds),
+        'num': len(rows),
+        'ssr': sum_of_squared_residuals
+    }
+
+def estimate_allan_mdev(group):
+    import allantools
+    tx_ts_diffs = np.diff([r['tx_ts'] for r in group])
+    assert np.std(tx_ts_diffs) == 0.0 # it needs to be constant!
+
+    rx_lls_fit = estimate_rx_std_with_lls_rx_fit(group)
+
+    rd = rx_lls_fit['ref_rd']
+    ro = rx_lls_fit['ref_ts']
+
+    tx_diff = convert_ts_to_sec(tx_ts_diffs[0])
+    tx_rate = 1.0 / tx_diff
+
+    rx_ts = (np.asarray([r['rx_ts'] for r in group]) + ro) / rd
+    rx_ts = np.asarray([r for r in rx_ts])
+
+    (taus2, md, mde, ns) = allantools.mdev(rx_ts, rate=tx_rate, data_type='phase', taus='all')
+
+    ys = [convert_ts_to_m(x) for x in md]
+    print(ys)
+
+    from matplotlib import pyplot as plt
+    plt.plot(taus2, ys)
+    plt.show()
+
+
+    exit()
 
 def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round = 0, up_to_round = None):
 
-    def extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver):
-        rel_rx = rx_df[(rx_df['own_number'] == receiver) & (rx_df['rx_number'] == transmitter)]
-
-        last_rx_ts = None
-        last_tx_ts = None
-
-        for index, row in rel_rx.iterrows():
-
-            poss_txs = tx_df[(tx_df['own_number'] == transmitter) & (tx_df['tx_round'] == row['rx_round']) & (tx_df['tx_slot'] == row['rx_slot'])]
-
-            if len(poss_txs.index) >= 1:
-                rel_tx = poss_txs.iloc[0]
-            else:
-                continue    # we could not find the relevant transmission!
-
-            rx_ts = row['bias_corrected_rx_ts' if bias_corrected else 'rx_ts']
-            tx_ts = rel_tx['tx_ts']
-
-            # correct for overflowing timestamps
-            if last_rx_ts is None:
-                last_rx_ts = rx_ts
-            elif last_rx_ts > rx_ts:
-                rx_ts += DS_OVERFLOW_VAL
-
-            if last_tx_ts is None:
-                last_tx_ts = tx_ts
-            elif last_tx_ts > tx_ts:
-                tx_ts += DS_OVERFLOW_VAL
-
-            d = {
-                'tx_number': rel_tx['own_number'],
-                'rx_number': row['own_number'],
-                'round': row['rx_round'],
-                'slot': row['rx_slot'],
-                'rx_ts': rx_ts,
-                'tx_ts': tx_ts,
-                'rx_ci': row['ci']
-            }
-
-            yield d
 
     def estimate_noise_std_with_lls(pairs):
         df = pd.DataFrame.from_records(pairs)
@@ -506,40 +644,7 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
         return None
 
 
-    import math
-    def estimate_noise_std_with_lls_grouped(pairs, group_size=5):
-        df = pd.DataFrame.from_records(pairs)
-        if len(df.index) > 0:
 
-            # we build the respectice matrices
-            coeff = np.asarray([[r['tx_ts'], -1] for (i, r) in df.iterrows()])
-            ordinate = df['rx_ts'].to_numpy()
-
-            num_groups = math.ceil(len(df.index)/group_size)
-
-            group_coeff_list = np.array_split(coeff, num_groups)
-            ordinate_list = np.array_split(ordinate, num_groups)
-
-            overall_sum_of_squared_residuals = 0.0
-            overall_num = 0
-
-            for g_coeff, g_ord in zip(group_coeff_list, ordinate_list):
-                if len(g_coeff) >= 4:
-                    x, sum_of_squared_residuals, _, _ = np.linalg.lstsq(g_coeff, g_ord, rcond=-1)
-                    group_sample_variance = sum_of_squared_residuals / (len(g_coeff) - 1)
-
-                    overall_sum_of_squared_residuals += sum_of_squared_residuals[0]
-                    overall_num += len(g_coeff)
-
-            sample_variance = overall_sum_of_squared_residuals / (overall_num - 1)
-
-            #print(len(df.index), convert_ts_to_m(np.sqrt(sample_variance)))
-
-            #print(df)
-
-            return convert_ts_to_m(np.sqrt(sample_variance))
-
-        return None
 
     def estimate_noise_std_with_lls_grouped_median(pairs, group_size=20):
         df = pd.DataFrame.from_records(pairs)
@@ -550,6 +655,7 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
             ordinate = df['rx_ts'].to_numpy()
 
             num_groups = math.ceil(len(df.index)/group_size)
+
 
             group_coeff_list = np.array_split(coeff, num_groups)
             ordinate_list = np.array_split(ordinate, num_groups)
@@ -609,10 +715,11 @@ def estimate_rx_noise_using_cfo(testbed, run, bias_corrected=True, skip_to_round
             for receiver in range(len(testbed.devs)):
                 if receiver != transmitter:
                     if len(rx_df.index) > 0 and len(tx_df.index) > 0:
-                        pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
+                        pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver, bias_corrected=bias_corrected))
                         rx_var_est = estimate_noise_std_with_lls_grouped_median(pairs)
 
-                        #pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver))
+
+                        #pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver, bias_corrected=bias_corrected))
                         #rx_var_est_cfo = estimate_noise_std_with_cfo_mean(pairs)
 
                         e = {
@@ -878,6 +985,8 @@ def gen_tdma_twr_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=
                 yield extract_record(testbed, rx_df, tx_df, r, a, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
 
 
+
+
 def gen_ping_pong_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, max_slot_dur=None):
 
     ping_pong_initiator_number = 3
@@ -935,6 +1044,87 @@ def gen_ping_pong_records(testbed, run, tdoa_src_dev_number=None, bias_corrected
                         rec = extract_record(testbed, rx_df, tx_df, r, ping_pong_initiator_number, b, tdoa_src_dev_number, init_slot, response_slot, final_slot, bias_corrected=bias_corrected)
                         #print(rec['relative_drift'])
                         yield rec
+
+
+def gen_ping_pong_rx_noise_records(testbed, run, bias_corrected=True, max_slot_dur=None):
+
+    ping_pong_initiator_number = 3
+    ping_pong_slots = 200+1
+
+    if max_slot_dur is None:
+        max_slot_dur = ping_pong_slots - 1
+
+    assert max_slot_dur % 2 == 0
+
+
+
+    # if slot_durations is None:
+    #     slot_durations = range(2, max_slot_dur+1, 2)
+    #
+    # assert all([x % 2 == 0 and x <= max_slot_dur for x in slot_durations])
+
+    #ping_pong_initiator = testbed.devs[ping_pong_initiator_number]
+
+    for (r, rx_events, tx_events) in gen_round_events(testbed, run):
+        rx_df = pd.DataFrame.from_records(rx_events)
+        tx_df = pd.DataFrame.from_records(tx_events)
+
+        log_ts = tx_df.iloc[0]['_log_ts']
+
+        print(r, len(rx_events), len(tx_events))
+
+        if len(rx_events) == 0 or len(tx_events) == 0:
+            continue
+
+        for (a, da) in enumerate(testbed.devs):
+            for (b, db) in enumerate(testbed.devs):
+
+                if a == b:
+                    continue
+
+                adjusted_rx_df = rx_df
+
+                if a == ping_pong_initiator_number:
+                    adjusted_rx_df = adjusted_rx_df[adjusted_rx_df['rx_slot'] < ping_pong_slots]
+
+                # the ping pong initator is in fact transmitting the whole time, i.e. every second slot this is why we can just iterate like this!
+                pairs = list((extract_rx_tx_pairs(adjusted_rx_df, tx_df, a, b, bias_corrected=bias_corrected)))
+
+                group_size = int(np.round(max_slot_dur/2.0))
+                groups = [pairs[i:i+group_size] for i in range(0, len(pairs), group_size)]
+
+                for group in groups:
+                    if len(group) < group_size:
+                        continue # we skip smaller groups to stay consistent with the group_size
+
+                    assert len(group) == group_size
+
+                    rec = {
+                        'round': r,
+                        'initiator': a,
+                        'responder': b,
+                        'log_round_start_ts': log_ts
+                    }
+
+                    est_rx = estimate_rx_std_with_lls_rx_fit(group)
+                    est_cfo_mean = estimate_rx_std_with_lls_cfo_fit(group, method='mean')
+                    est_cfo_median = estimate_rx_std_with_lls_cfo_fit(group, method='median')
+                    #est_allan_mdev = estimate_allan_mdev(group)
+
+                    for k in est_rx.keys():
+                        rec['est_rx_' + k] = est_rx[k]
+
+                    for k in est_cfo_mean.keys():
+                        rec['est_cfo_mean_' + k] = est_cfo_mean[k]
+
+                    for k in est_cfo_median.keys():
+                        rec['est_cfo_median_' + k] = est_cfo_median[k]
+
+                    yield rec
+
+
+            # pairs = (extract_rx_tx_pairs(rx_df, tx_df, transmitter, receiver, bias_corrected=bias_corrected))
+            # rx_var_est_cfo = estimate_noise_std_with_cfo_mean(pairs)
 
 
 def gen_new_delay_records(testbed, run, tdoa_src_dev_number=None, bias_corrected=True, initiator_id=None, responder_id=None, num_exchanges=100):
@@ -1030,9 +1220,32 @@ if __name__ == '__main__':
 
     import testbed.trento_a as trento_a
 
-    it  = gen_ping_pong_records(trento_a, 'ping_pong_trento_a_source_4_11702', tdoa_src_dev_number=None, bias_corrected=True)
-    df = pd.DataFrame.from_records(it)
-    print(df)
+    def gen_fake_rx_tx_pairs():
+        rd = 1.2
+        for i in range(1000):
+            tx_ts = convert_sec_to_ts(10+0.1 * i)
+            rx_ts = convert_sec_to_ts(120)+tx_ts*rd + convert_m_to_ts(np.random.normal(0, 0.05))
+            d = {
+                'tx_ts': tx_ts,
+                'rx_ts': rx_ts,
+                'rx_ci': rd_to_ci(np.random.normal(rd, 0.0000000005))
+            }
+            yield d
+
+    rx_res = estimate_rx_std_with_lls_rx_fit(list(gen_fake_rx_tx_pairs()))
+    cfo_res = estimate_rx_std_with_lls_cfo_fit(list(gen_fake_rx_tx_pairs()))
+
+    rx_sample_variance = rx_res['ssr'] / (rx_res['num'] - 1)
+    cfo_sample_variance = cfo_res['ssr'] / (cfo_res['num'] - 1)
+
+    #print(ci_to_rd(rd_to_ci(1.2)))
+    print(convert_ts_to_m(np.sqrt(rx_sample_variance)), convert_ts_to_m(np.sqrt(cfo_sample_variance)))
+
+    exit()
+
+    # 50 feels good
+    # 100 is way too much!
+    # 200 as well!
 
 
 

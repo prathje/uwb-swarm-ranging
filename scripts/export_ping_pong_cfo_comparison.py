@@ -43,7 +43,7 @@ logfiles = [
         '2024-02-28_ping_pong_200/job_11998.tar.gz',
 ]
 
-passive_dev = 1
+passive_dev = 6
 max_slot_dur = 22
 
 def export_ds_cfo_active_std_comparison(export_dir):
@@ -175,7 +175,7 @@ def export_ds_cfo_passive_std_comparison(export_dir):
 
     #ax.set_xlim([-0.6, +0.6])
 
-    ax.set_ylim([0.03, 0.08])
+    #ax.set_ylim([0.03, 0.08])
     save_and_crop("{}/std_passive_close.pdf".format(export_dir), bbox_inches='tight')  # , pad_inches=0)
 
     plt.close()
