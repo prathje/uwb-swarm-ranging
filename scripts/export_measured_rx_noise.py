@@ -14,7 +14,8 @@ from testbed import lille, trento_a, trento_b
 
 from logs import gen_estimations_from_testbed_run, gen_measurements_from_testbed_run, \
     gen_delay_estimates_from_testbed_run
-from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd
+from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, convert_ts_to_m, convert_m_to_ts, ci_to_rd, \
+    SPEED_OF_LIGHT
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -47,13 +48,13 @@ def export_measured_rx_noise(export_dir):
     for a in range(len(t.devs)):
         for b in range(len(t.devs)):
             if b != a:
-                ma[a, b] = rx_noise_map[(a, b)] * 100
+                ma[a, b] = rx_noise_map[(a, b)]/SPEED_OF_LIGHT * 1e12
             else:
                 ma[a, b] = 0.0 #np.nan
 
     plt.clf()
     fig, ax = plt.subplots(figsize=(3.5, 3.5))
-    ax.matshow(ma, cmap='viridis', vmin=0, vmax=5)
+    ax.matshow(ma, cmap='viridis', vmin=0, vmax=200)
 
     for i in range(ma.shape[0]):
         for j in range(ma.shape[1]):
@@ -74,7 +75,10 @@ def export_measured_rx_noise(export_dir):
     ax.set_xlabel('RX Device')
     ax.set_ylabel('TX Device')
 
-    save_and_crop("{}/rx_noise_sd_cm_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0, crop=True)
+    print("1cm equals ps", (0.01/SPEED_OF_LIGHT) * 1e12)
+    print("1ps equals cm", (SPEED_OF_LIGHT/1e12)*100.0)
+
+    save_and_crop("{}/rx_noise_sd_ps_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0, crop=True)
 
     plt.close()
 

@@ -365,7 +365,7 @@ def export_tdoa_simulation_response_std(export_dir):
 
         ax = pred_df.plot.line(x='rdr', y='Analytical DS-TDoA', alpha=1.0, color='C2', linestyle='--')
         ax = pred_df.plot.line(ax=ax, x='rdr', y='Analytical DS-TWR', alpha=1.0, color='C4', linestyle='--')
-        ax = pred_df.plot.line(ax=ax, x='rdr', y='Analytical DS-TWR\n[Navrátil and Vejražka]', alpha=1.0, color='gray', linestyle= 'dashdot')
+        ax = pred_df.plot.line(ax=ax, x='rdr', y='Analytical DS-TWR\n[Navrátil and Vejražka]', alpha=1.0, color='gray', linestyle= 'dotted')
 
         ax = data_df.plot.line(x='rdr', ax=ax, y='Simulated DS-TDoA', alpha=0.5, color='C2', linestyle='-', marker='.')
         ax = data_df.plot.line(x='rdr', ax=ax, y='Simulated DS-TWR', alpha=0.5, color='C4', linestyle='-')
