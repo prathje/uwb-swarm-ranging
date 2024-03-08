@@ -18,6 +18,9 @@ from base import get_dist, pair_index, convert_ts_to_sec, convert_sec_to_ts, con
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import matplotlib.patches as mpatches
+
 from utility import slugify, cached_legacy, init_cache, load_env_config, set_global_cache_prefix_by_config
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 
@@ -103,14 +106,32 @@ logfiles = [
         # '2024-03-01_ping_pong_200/job_12012.tar.gz',
 ]
 
+
+def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
+    return np.sqrt(
+        (0.5 * b_a_std) ** 2
+        + (0.5 * linear_ratios * a_b_std) ** 2
+        + (0.5 * (1 - linear_ratios) * a_b_std) ** 2
+    )
+
+def calc_predicted_tdoa_std(linear_ratios, a_b_std, b_a_std, a_p_std, b_p_std):
+    return np.sqrt(
+        (0.5 * b_a_std) ** 2
+        + (0.5 * a_b_std * (linear_ratios - 1)) ** 2
+        + (0.5 * a_b_std * (linear_ratios)) ** 2
+        + (a_p_std * (1 - linear_ratios)) ** 2
+        + b_p_std ** 2
+        + (a_p_std * (linear_ratios)) ** 2
+    )
+
 def export_delay_exp_ping_pong(export_dir):
     assume_twr_equal_noise = False
 
     min_round = 50
 
     initiator = 3
-    responders = [0, 1, 2, 4, 5, 6]
-    passive_devs = [0, 1, 2, 4, 5]
+    responders = [5, 6]
+    passive_devs = [0, 1, 2, 4, 5, 6]
 
     overall_r2_fits = {}
     for max_slots_dur in [42]: #list(range(18, 42+1, 8)):
@@ -300,27 +321,17 @@ def export_delay_exp_ping_pong(export_dir):
                     colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
 
                     if assume_twr_equal_noise:
-                        def calc_predicted_tof_std(linear_ratios, a_b_std):
-                            b_a_std = a_b_std
-                            return np.sqrt(
-                                (0.5 * b_a_std) ** 2
-                                + (0.5 * linear_ratios * a_b_std) ** 2
-                                + (0.5 * (1 - linear_ratios) * a_b_std) ** 2
-                            )
+                        def fit(linear_ratios, a_b_std):
+                            return calc_predicted_tof_std(linear_ratios, a_b_std, a_b_std)
                     else:
-                        def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
-                            return np.sqrt(
-                                (0.5 * b_a_std) ** 2
-                                + (0.5 * linear_ratios * a_b_std) ** 2
-                                + (0.5 * (1-linear_ratios) * a_b_std) ** 2
-                            )
+                        fit = calc_predicted_tof_std
 
                     data_xs = active_df_aggr['linear_ratio'].to_numpy()
                     data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
                     data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
                     data_counts = active_df_aggr['ratio_rounded'].to_numpy()
 
-                    popt, pcov = scipy.optimize.curve_fit(calc_predicted_tof_std, data_xs, data_ys, bounds=(0, 2))
+                    popt, pcov = scipy.optimize.curve_fit(fit, data_xs, data_ys, bounds=(0, 2))
 
                     alt_pred = None
                     alt_r2_fit = None
@@ -368,22 +379,11 @@ def export_delay_exp_ping_pong(export_dir):
 
 
 
-                    def calc_predicted_tdoa_std(linear_ratios, a_b_std, b_a_std, a_p_std, b_p_std):
-
-                        return np.sqrt(
-                            (0.5 * b_a_std) ** 2
-                            + (0.5 * a_b_std * (linear_ratios - 1)) ** 2
-                            + (0.5 * a_b_std * (linear_ratios)) ** 2
-                            + (a_p_std * (1 - linear_ratios)) ** 2
-                            + b_p_std ** 2
-                            + (a_p_std * (linear_ratios)) ** 2
-                        )
-
                     fig, ax = plt.subplots()
                     plt.plot(data_xs_ratio, pred_twr_ys, alpha=0.5, linestyle='--', color=colors[0])
 
                     if alt_pred is not None:
-                        plt.plot(data_xs_ratio, alt_pred, alpha=0.5, linestyle='--', color='gray', label='DS-TWR Pred\n[Navrátil and Vejražka]')
+                        plt.plot(data_xs_ratio, alt_pred, alpha=0.5, linestyle='--', color='gray', label='DS-TWR Model\n[Navrátil and Vejražka]')
 
                     # label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100))
 
@@ -523,6 +523,265 @@ def export_delay_exp_ping_pong(export_dir):
     print("OVERALL R2 FITS")
     print(overall_r2_fits)
 
+
+
+
+def export_first_std_graph(export_dir):
+    assume_twr_equal_noise = False
+
+    min_round = 50
+
+    initiator = 3
+    responder = 5
+    passive_devs = [1, 4, 2, 0, 6]
+    max_slots_dur = 42
+
+    import export_drift_rate
+    rx_noise_map = export_drift_rate.estimate_reception_noise_map(None, use_bias_correction=True, min_round=min_round)
+
+    dfs = [
+        get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles
+    ]
+
+    active_df = pd.concat(dfs, ignore_index=True, copy=True)
+
+    active_df = prepare_df(active_df, initiator=initiator, responder=responder, min_round=min_round)
+
+
+    # 3,4, 3to4
+    # 5, 4 to 5
+    # 6 3.5 to 4.5
+    # 7 6to8
+    # 8, 3.5 to 4.5
+    # 9 3.5 to 4.5
+    # 10 3.5 to 4.5
+    # 12 3 to 4
+    if len(passive_devs):
+        dfs = [
+            get_df(log, tdoa_src_dev_number=d, max_slots_dur=max_slots_dur) for log in logfiles for d in passive_devs
+        ]
+        passive_df = pd.concat(dfs, ignore_index=True, copy=True)
+        passive_df = prepare_df(passive_df, initiator=initiator, responder=responder, min_round=min_round)
+    else:
+        passive_df = None
+
+
+    active_df_aggr = active_df.groupby('ratio_rounded').agg(
+        {
+            'twr_tof_ds_err': 'std',
+            'twr_tof_ss_err': 'std',
+            'twr_tof_ss_reverse_err': 'std',
+            'twr_tof_ss_avg': 'std',
+            'linear_ratio': 'mean',
+            'ratio_rounded': 'count'
+        }
+    )
+
+    # we filter out ratios with less than 2 samples
+    active_df_aggr = active_df_aggr[active_df_aggr['ratio_rounded'] > 1]
+
+    num_per_bin = 0
+    colors = ['C4', 'C1', 'C2', 'C5', 'C3', 'C5', 'C6']
+    styles = ['-']*7
+
+    markers = ["o", ".", "v", "^", "+", "*", "s"]
+    #markers = [0, 1, 2, 3, 4, 5, 6]
+    marker_size = 4.0
+
+    if assume_twr_equal_noise:
+        def calc_predicted_tof_std(linear_ratios, a_b_std):
+            b_a_std = a_b_std
+            return np.sqrt(
+                (0.5 * b_a_std) ** 2
+                + (0.5 * linear_ratios * a_b_std) ** 2
+                + (0.5 * (1 - linear_ratios) * a_b_std) ** 2
+            )
+    else:
+        def calc_predicted_tof_std(linear_ratios, a_b_std, b_a_std):
+            return np.sqrt(
+                (0.5 * b_a_std) ** 2
+                + (0.5 * linear_ratios * a_b_std) ** 2
+                + (0.5 * (1-linear_ratios) * a_b_std) ** 2
+            )
+
+    data_xs = active_df_aggr['linear_ratio'].to_numpy()
+    data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+    data_ys = active_df_aggr['twr_tof_ds_err'].to_numpy()
+    data_counts = active_df_aggr['ratio_rounded'].to_numpy()
+
+    alt_pred = None
+    alt_r2_fit = None
+
+    popt = [rx_noise_map[(initiator, responder)], rx_noise_map[(responder, initiator)]]
+
+    delay_b = data_xs*max_slots_dur*0.0075
+    delay_a = (1.0-data_xs)*max_slots_dur*0.0075
+
+    n = np.mean(popt)
+    alt_pred = calc_predicted_tof_std_navratil(n,n, delay_b, delay_a)
+    alt_residuals = data_ys - alt_pred
+    print(alt_pred)
+
+    alt_ss_res = np.sum(alt_residuals ** 2)
+    alt_ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+
+    alt_r2_fit = np.round(1 - (alt_ss_res / alt_ss_tot), 3)
+
+    print("Alt Pred R2 Fit", alt_r2_fit)
+
+    pred_twr_ys = calc_predicted_tof_std(data_xs, popt[0], popt[1])
+    residuals = data_ys - calc_predicted_tof_std(data_xs, *popt)
+
+    ss_res = np.sum(residuals ** 2)
+    ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+
+    print("Active R2 Fit", np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+    print("Optimal TWR Fit", popt)
+    print("NUM DATAPOINTS overall", len(active_df))
+    print("NUM ratios", len(active_df_aggr))
+
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, height_ratios=[1, 3], sharex=True)
+    fig.subplots_adjust(hspace=0.05)  # adjust space between axes
+
+    # hide the spines between ax and ax2
+    ax1.spines.bottom.set_visible(False)
+    ax2.spines.top.set_visible(False)
+    ax1.xaxis.tick_top()
+    ax1.tick_params(labeltop=False)  # don't put tick labels at the top
+    ax2.xaxis.tick_bottom()
+
+    d = .5  # proportion of vertical to horizontal extent of the slanted line
+    kwargs = dict(marker=[(-1, -d), (1, d)], markersize=12,
+                  linestyle="none", color='k', mec='k', mew=1, clip_on=False)
+    ax1.plot([0, 1], [0, 0], transform=ax1.transAxes, **kwargs)
+    ax2.plot([0, 1], [1, 1], transform=ax2.transAxes, **kwargs)
+
+    if alt_pred is not None:
+        ax2.plot(data_xs_ratio, alt_pred, alpha=1.0, linestyle='dashdot', color='gray', label='DS-TWR Model\n[Navrátil & Vejražka]')
+
+    ax2.plot(data_xs_ratio, pred_twr_ys, alpha=1.0, linestyle='--', color=colors[responder])
+
+
+    # label='Fit ToF $(\sigma_{{AB}}={:.2f}, \sigma_{{BA}}={:.2f})$'.format(popt[0]*100, popt[1]*100))
+
+    active_df_aggr.plot.line(y='twr_tof_ds_err', ax=ax2, label="DS-TWR ${}\\rightarrow {}$".format(initiator+1, responder+1), style='-', color=colors[responder])
+
+    ci_cd_low, ci_cd_high = calc_ci_of_sd(data_ys, data_counts, alpha=0.01)
+
+    #print(ci_cd_low, ci_cd_high)
+
+    ax2.fill_between(data_xs, ci_cd_low, ci_cd_high, color=colors[responder], alpha=0.25)
+
+
+
+    #active_df_aggr.plot.line(y='twr_tof_ss_err', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_reverse_err', ax=ax)
+    #active_df_aggr.plot.line(y='twr_tof_ss_avg', ax=ax)
+
+    for (i, passive_dev) in enumerate(passive_devs):
+        if passive_dev in [initiator, responder]:
+            continue
+
+        filt_df = passive_df[passive_df['tdoa_device'] == passive_dev]
+
+        aggr_filt_df = filt_df.groupby('ratio_rounded').agg(
+            {
+                'tdoa_est_ds': 'std',
+                'linear_ratio': 'mean',
+                'ratio_rounded': 'count',
+                'tdoa_est_mixed': 'std',
+                'tdoa_est_ss_init': 'std'
+            }
+        )
+
+        aggr_filt_df = aggr_filt_df[aggr_filt_df['ratio_rounded'] > 1]
+
+        data_xs = aggr_filt_df['linear_ratio'].to_numpy()
+        data_xs_ratio = data_xs# np.round(np.log10(data_xs) * 100) / 100.0
+        data_ys = aggr_filt_df['tdoa_est_ds'].to_numpy()
+
+        data_counts = aggr_filt_df['ratio_rounded'].to_numpy()
+
+        def fit(linear_ratios, a_p_std, b_p_std):
+            return calc_predicted_tdoa_std(linear_ratios, popt[0], popt[1], a_p_std, b_p_std)
+
+        passive_popt = [rx_noise_map[(initiator, passive_dev)], rx_noise_map[(responder, passive_dev)]]
+
+        residuals = data_ys - fit(data_xs, *passive_popt)
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((data_ys - np.mean(data_ys)) ** 2)
+
+        print("Passive {}".format(passive_dev), np.round(1 - (ss_res / ss_tot), 3), 1 - (ss_res / ss_tot))
+
+        pred_tdoa_ys = calc_predicted_tdoa_std(data_xs, popt[0], popt[1], passive_popt[0],
+                                               passive_popt[1])
+
+        print("Optimal TDoA Fit", i, popt[0], popt[1], passive_popt[0], passive_popt[1], np.round(popt[0] * 100, 2),
+              np.round(popt[1] * 100, 2), np.round(passive_popt[0] * 100, 2), np.round(passive_popt[1] * 100, 2))
+
+        ci_cd_low, ci_cd_high = calc_ci_of_sd(data_ys, data_counts)
+        pax = ax2 if passive_dev != 6 else ax1
+        pax.fill_between(data_xs_ratio, ci_cd_low, ci_cd_high, color=colors[passive_dev], alpha=0.25)
+
+        pax.plot(data_xs_ratio, pred_tdoa_ys, color=colors[passive_dev], linestyle='--', alpha=1.0)
+        # label='Fit TDoA $(\sigma_{{AL}}={:.2f}, \sigma_{{BL}}={:.2f})$'.format(passive_popt[0]*100, passive_popt[1]*100),
+        aggr_filt_df.plot.line(y='tdoa_est_ds', ax= ax2, label="DS-TDoA ${}$".format(passive_dev + 1), color=colors[passive_dev], style=styles[passive_dev], marker=markers[passive_dev], markersize=marker_size)
+
+        if passive_dev == 6:
+            aggr_filt_df.plot.line(y='tdoa_est_ds', ax= ax1, color=colors[passive_dev], style=styles[passive_dev], marker=markers[passive_dev], markersize=marker_size)
+
+    ax1.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    ax2.yaxis.set_major_formatter(lambda x, pos: np.round(x * 100.0, 1))  # scale to cm
+    fig.set_size_inches(5.0, 6.0)
+
+    ax2.set_xlabel(r"Delay Ratio $\dfrac{D_B}{D_B+D_A}$")
+    #ax1.set_ylabel('SD [cm]')
+    ax2.set_ylabel('SD [cm]')
+
+    ax1.xaxis.set_major_locator(plt.MultipleLocator(0.25))
+    ax2.xaxis.set_major_locator(plt.MultipleLocator(0.25))
+    ax1.xaxis.set_minor_locator(plt.MultipleLocator(0.125))
+    ax2.xaxis.set_minor_locator(plt.MultipleLocator(0.125))
+
+    ax1.yaxis.set_major_locator(plt.MultipleLocator(0.05))
+    ax1.yaxis.set_minor_locator(plt.MultipleLocator(0.0025))
+
+    ax2.yaxis.set_major_locator(plt.MultipleLocator(0.005))
+    ax2.yaxis.set_minor_locator(plt.MultipleLocator(0.0025))
+
+    ax1.set_ylim(0.18, 0.265) # outliers
+    #ax2.set_ylim(None, 0.05)
+
+    #legend on the side! ax2.set_ylim([0.0175, 0.0475])
+    ax2.set_ylim([0.0, 0.0475])
+
+    ax1.grid(color='lightgray', linestyle='dashed')
+    ax2.grid(color='lightgray', linestyle='dashed')
+
+    # access legend objects automatically created from data
+    handles, labels = plt.gca().get_legend_handles_labels()
+
+    # create manual symbols for legend
+    patch = mpatches.Patch(color='lightgrey', label='99% CI')
+    line = Line2D([0], [0], label='Proposed Model', color='lightgrey', linestyle='--')
+    #point = Line2D([0], [0], label='manual point', marker='s', markersize=10,
+    #               markeredgecolor='r', markerfacecolor='k', linestyle='')
+
+    # add manual symbols to auto legend
+    handles.insert(0, patch)
+    handles.insert(2, line)
+    ax1.get_legend().remove()
+    # legend on the side!ax2.legend(handles=handles, reverse=True, loc='center left', bbox_to_anchor=(1, 0.5))
+    ax2.legend(handles=handles, reverse=True, ncols=2)
+    # plt.tight_layout()
+
+    # ax.set_ylim([0.0, 0.25])
+    # ax.set_xlim([-100.0, +100.0])
+
+    save_and_crop("{}/std_fit_ping_pong_first_graph.pdf".format(export_dir), bbox_inches='tight', crop=True)  # , pad_inches=0)
+    plt.close()
+
 if __name__ == '__main__':
     config = load_env_config()
     load_plot_defaults()
@@ -530,7 +789,8 @@ if __name__ == '__main__':
     if 'CACHE_DIR' in config and config['CACHE_DIR']:
         init_cache(config['CACHE_DIR'])
 
-    export_delay_exp_ping_pong(config['EXPORT_DIR'])
+    export_first_std_graph(config['EXPORT_DIR'])
+    #export_delay_exp_ping_pong(config['EXPORT_DIR'])
 
 
 

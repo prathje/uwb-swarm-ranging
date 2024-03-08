@@ -1,1 +1,0 @@
-{"duration": 7200, "start_time": "asap", "binaries": [{"hardware": "dwm1001", "bin_file": "zephyr.hex", "targets": ["disi_all"], "programAddress": null, "serialBaudrate": null}], "email": null, "island": "DEPT", "logs": 0, "required": "all", "snapshot": false, "name": "UWB", "description": "", "test_id": 9948, "user": "pra@informatik.uni-kiel.de"}

@@ -172,12 +172,12 @@ def export_tdoa_simulation_response_std_scatter(config, export_dir):
     df = pd.DataFrame(data_rows)
     print(df)
 
-    df = df.rename(columns={"tof_std": "ToF SD", "tdoa_std": "TDoA SD"})
+    df = df.rename(columns={"tof_std": "ToF SD", "tdoa_std": "TDoA"})
 
     plt.clf()
-    #ax = df.plot.line(x='rdr', y=['ToF SD', 'TDoA SD'])
+    #ax = df.plot.line(x='rdr', y=['ToF SD', 'TDoA'])
     ax = df.plot.scatter(x='rdr', y='ToF SD', alpha=0.2)
-    #ax = df.plot.scatter(x='rdr', y='TDoA SD')
+    #ax = df.plot.scatter(x='rdr', y='TDoA')
 
 
     plt.ylim(-4.0, 4.0)
@@ -349,36 +349,32 @@ def export_tdoa_simulation_response_std(export_dir):
         pred_df = pd.DataFrame(prediction_rows)
 
         data_df = data_df.rename(columns={
-            "tof_std": "Simulated DS-TWR SD",
-            "tof_ds_std": "DS-TWR SD",
-            "tdoa_std": "Simulated DS-TDoA SD",
-            "tdoa_ds_std": "DS-TDoA SD",
+            "tof_std": "Simulated DS-TWR",
+            "tof_ds_std": "DS-TWR",
+            "tdoa_std": "Simulated DS-TDoA",
+            "tdoa_ds_std": "DS-TDoA",
             "tdoa_half_cor_std": "DS-TDoA (w/ DC) SD",
             "tdoa_ds_half_cor_std": "DS-TDoA DS (w/ DC) SD",
         })
 
         pred_df = pred_df.rename(columns={
-            "predicted_tof_std": "Analytical DS-TWR SD",
-            "predicted_tof_std_navratil": "Analytical DS-TWR SD\n[Navrátil and Vejražka]",
-            "predicted_tdoa_std": "Analytical DS-TDoA SD"
+            "predicted_tof_std": "Analytical DS-TWR",
+            "predicted_tof_std_navratil": "Analytical DS-TWR\n[Navrátil and Vejražka]",
+            "predicted_tdoa_std": "Analytical DS-TDoA"
         })
 
-        ax = pred_df.plot.line(x='rdr', y=[
-            'Analytical DS-TDoA SD',
-            'Analytical DS-TWR SD\n[Navrátil and Vejražka]',
-            'Analytical DS-TWR SD',
-        ], alpha=1.0, color=['C2', 'gray', 'C4'], linestyle='--')
+        ax = pred_df.plot.line(x='rdr', y='Analytical DS-TDoA', alpha=1.0, color='C2', linestyle='--')
+        ax = pred_df.plot.line(ax=ax, x='rdr', y='Analytical DS-TWR', alpha=1.0, color='C4', linestyle='--')
+        ax = pred_df.plot.line(ax=ax, x='rdr', y='Analytical DS-TWR\n[Navrátil and Vejražka]', alpha=1.0, color='gray', linestyle= 'dashdot')
 
-        ax = data_df.plot.line(x='rdr', ax=ax, y=[
-            'Simulated DS-TDoA SD',
-            'Simulated DS-TWR SD',
-        ], alpha=0.5, color=['C2', 'C4'], linestyle='-')
+        ax = data_df.plot.line(x='rdr', ax=ax, y='Simulated DS-TDoA', alpha=0.5, color='C2', linestyle='-', marker='.')
+        ax = data_df.plot.line(x='rdr', ax=ax, y='Simulated DS-TWR', alpha=0.5, color='C4', linestyle='-')
 
-        plt.fill_between(data_df['rdr'], data_df['tof_std_ci_low'], data_df['tof_std_ci_up'], color='C4', alpha=0.25)
         plt.fill_between(data_df['rdr'], data_df['tdoa_std_ci_low'], data_df['tdoa_std_ci_up'], color='C2', alpha=0.25)
+        plt.fill_between(data_df['rdr'], data_df['tof_std_ci_low'], data_df['tof_std_ci_up'], color='C4', alpha=0.25)
 
-        #data_df.plot.scatter(x='rdr', y='Simulated DS-TWR SD', ax=ax, c='C4', s=0.5, label='Simulated DS-TWR SD')
-        #data_df.plot.scatter(x='rdr', y='Simulated DS-TDoA SD', ax=ax, c='C2', s=0.5, label='Simulated DS-TDoA SD')
+        #data_df.plot.scatter(x='rdr', y='Simulated DS-TWR', ax=ax, c='C4', s=0.5, label='Simulated DS-TWR')
+        #data_df.plot.scatter(x='rdr', y='Simulated DS-TDoA', ax=ax, c='C2', s=0.5, label='Simulated DS-TDoA')
 
         print("Mean", data_df['tof_mean'].mean(), data_df['tdoa_ds_mean'].mean())
 
@@ -395,7 +391,7 @@ def export_tdoa_simulation_response_std(export_dir):
         #ax.xaxis.set_major_formatter(lambda x, pos: formatter(x))
 
         #plt.axhline(y=np.sqrt(0.5), color='C0', linestyle='dotted', label = "Analytical ToF SD")
-        #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA SD")
+        #plt.axhline(y=np.sqrt(2.5), color='C1', linestyle='dotted', label = "Analytical TDoA")
 
 
 
@@ -405,8 +401,8 @@ def export_tdoa_simulation_response_std(export_dir):
         #plt.ylim(0.2, 15)
 
         ax.set_axisbelow(True)
-        ax.set_xlabel("Delay Ratio $\\ D_B:D_A$")
-        ax.set_ylabel("Sample SD [ns]")
+        ax.set_xlabel(r"Delay Ratio $\dfrac{D_B}{D_B+D_A}$")
+        ax.set_ylabel("Sample Standard Deviation [ns]")
 
 
         ax.yaxis.set_major_locator(MultipleLocator(1.0))
@@ -430,8 +426,8 @@ def export_tdoa_simulation_response_std(export_dir):
 
         plt.grid(color='lightgray', linestyle='dashed')
 
-        plt.legend(ncol=2,handletextpad=0.2)
-        plt.gcf().set_size_inches(6.15, 5.25)
+        plt.legend(ncol=2,handletextpad=0.3)
+        plt.gcf().set_size_inches(6.15, 5.0)
         ticks = list(ax.get_yticks())
         labels = list(ax.get_yticklabels())
 

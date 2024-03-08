@@ -46,6 +46,9 @@ src_devs = {
 
 def load_plot_defaults():
     # Configure as needed
+
+    #plt.rcParams['text.usetex'] = True
+    #plt.rcParams['text.latex.preamble'] = [r'\usepackage{nicefrac}']  # for \text command
     plt.rc('lines', linewidth=2.0)
     #plt.rc('image', cmap='viridis')
     plt.rc('legend', framealpha=1.0, fancybox=True)
@@ -2620,87 +2623,7 @@ def export_measured_mean_std_matrix(config, export_dir):
 
             plt.close()
 
-def export_measured_rx_noise(config, export_dir):
 
-    skip_to_round = 50
-    up_to_round = None
-    use_bias_correction = True
-    log = 'exp_rx_noise_10041'
-
-    # we also directly search for the triples with the lowest rx variance variation
-
-    lowest_var = 100000.0
-    lowest_tripel = []
-
-    for (c, t) in enumerate([trento_b]):
-
-        est_df = get_cached_rx_noise(t, log, bias_corrected=use_bias_correction, skip_to_round=skip_to_round, up_to_round=up_to_round)
-
-        ma = np.zeros((len(t.devs), len(t.devs)))
-
-        for a in range(len(t.devs)):
-            for b in range(len(t.devs)):
-                if b != a:
-
-                    xs = est_df[(est_df['tx_number'] == a) & (est_df['rx_number'] == b)]['rx_std_est']
-
-                    std = xs.median()
-
-                    if std is not None:
-                        s = std * 100
-                    else:
-                        s = np.nan
-                    ma[a, b] = s
-
-        tripel_stds = []
-        for a in range(len(t.devs)):
-            for b in range(len(t.devs)):
-                for c in range(len(t.devs)):
-                    if b != a and c != a and c != b:
-                        stds = np.asarray([
-                            ma[a, b],
-                            ma[b, a],
-                            ma[a, c],
-                            ma[c, a],
-                            ma[b, c],
-                            ma[c, b],
-                        ])
-
-                        tripel_stds.append({
-                            'tripel': "{}-{}-{}".format(a,b,c),
-                            'std': stds.std()
-                        })
-        tripel_df = pd.DataFrame.from_records(tripel_stds).sort_values('std')
-        print(tripel_df.head(20))
-
-        print(t.name, "mean std", ma.mean(), "median", np.median(ma), "max", np.max(ma), "90% quantile", np.quantile(ma, 0.9), "95% quantile", np.quantile(ma, 0.95))
-
-        plt.clf()
-        fig, ax = plt.subplots(figsize=(7.5, 7.5))
-        ax.matshow(ma)
-
-        for i in range(ma.shape[0]):
-            for j in range(ma.shape[1]):
-                if i != j:
-                    e = ma[i, j]
-                    if e > 100:
-                        e = int(ma[i, j])
-                    else:
-                        e = round(ma[i, j], 1)
-                    s = str(e)
-                    ax.text(x=j, y=i, s=s, va='center', ha='center', usetex=False)
-
-        ax.xaxis.set_major_formatter(lambda x, pos: int(x+1))
-        ax.yaxis.set_major_formatter(lambda x, pos: int(x+1))
-        fig.set_size_inches(6.0, 6.0)
-        plt.tight_layout()
-
-        ax.set_xlabel('RX Device')
-        ax.set_ylabel('TX Device')
-
-        plt.savefig("{}/rx_noise_variance_{}.pdf".format(export_dir, t.name), bbox_inches='tight', pad_inches=0)
-
-        plt.close()
 
 
 def export_predicted_ds_twr(config, export_dir):

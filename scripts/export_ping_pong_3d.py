@@ -47,19 +47,6 @@ max_slot_durs = list(range(2, 201, 4))
 
 def export_ping_pong_3d(export_dir):
 
-        dfs = [
-            get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles for max_slots_dur in max_slot_durs
-        ]
-
-        active_df = pd.concat(dfs, ignore_index=True, copy=True)
-        active_df = prepare_df(active_df, initiator=3, responder=1, min_round=50)
-
-        active_df['ratio_rounded'] = active_df['ratio_rounded'].apply(lambda x: np.round(x*5.0, decimals=1)/5.0)
-
-        active_df['dur_ms_rounded'] = active_df['dur_ms_rounded'].apply(lambda x: np.round(x * 5.0, decimals=2) / 5.0)
-
-
-
         # TODO add passive_df!!
         # active_df, passive_df = extract_active_and_all_passive_dfs(log, None, None,
         #                                                           use_bias_correction=True, skip_to_round=0,
@@ -79,28 +66,59 @@ def export_ping_pong_3d(export_dir):
         #     }
         # )
 
-        active_df_aggr = active_df.groupby(['dur_ms_rounded', 'ratio_rounded']).agg(
-            {
-                'twr_tof_ds_err': 'mean',
-                'twr_tof_ss_err': 'std',
-                'twr_tof_ss_reverse_err': 'std',
-                'twr_tof_ss_avg': 'std',
-                'linear_ratio': 'mean',
-                'delay_b_ms_rounded': 'mean',
-                'delay_a_ms_rounded': 'mean',
-                'dur_ms_rounded': 'mean',
-                'ratio_rounded': 'mean',
-            }
-        )
+        initiator = 3
+        responder = 5
+
+        def get_cached():
+            dfs = [
+                get_df(log, tdoa_src_dev_number=None, max_slots_dur=max_slots_dur) for log in logfiles for max_slots_dur
+                in max_slot_durs
+            ]
+
+            active_df = pd.concat(dfs, ignore_index=True, copy=True)
+            active_df = prepare_df(active_df, initiator=initiator, responder=responder, min_round=50)
+
+            active_df['ratio_rounded'] = active_df['ratio_rounded'].apply(lambda x: np.round(x * 5.0, decimals=1) / 5.0)
+
+            active_df['dur_ms_rounded'] = active_df['dur_ms_rounded'].apply(
+                lambda x: np.round(x * 5.0, decimals=2) / 5.0)
+
+            active_df_aggr = active_df.groupby(['dur_ms_rounded', 'ratio_rounded']).agg(
+                {
+                    'twr_tof_ds_err': 'mean',
+                    #'twr_tof_ss_err': 'std',
+                    #'twr_tof_ss_reverse_err': 'std',
+                    #'twr_tof_ss_avg': 'std',
+                    'linear_ratio': 'mean',
+                    'delay_b_ms_rounded': 'mean',
+                    'delay_a_ms_rounded': 'mean',
+                    'dur_ms_rounded': 'mean',
+                    'ratio_rounded': 'mean',
+                }
+            )
+            return active_df_aggr
+
+        active_df_aggr = utility.cached_dt_legacy((initiator, responder), proc_cb=get_cached)
 
         # we filter out ratios with less than 2 samples
         #active_df_aggr = active_df_aggr[active_df_aggr['delay_b_ms_rounded'] > 1]
         print(active_df_aggr)
 
-        ax = plt.axes(projection='3d')
+        fig = plt.figure()
 
-        x = active_df_aggr['dur_ms_rounded'].to_numpy()
-        y = active_df_aggr['ratio_rounded'].to_numpy()
+        ax = plt.axes(projection='3d')
+        ax.set_box_aspect(aspect=None, zoom=0.8)
+
+        ax.xaxis.pane.fill = False
+        ax.yaxis.pane.fill = False
+        ax.zaxis.pane.fill = False
+        #
+        # ax.xaxis.pane.set_edgecolor('black')
+        # ax.yaxis.pane.set_edgecolor('black')
+        # ax.zaxis.pane.set_edgecolor('black')
+
+        x = active_df_aggr['ratio_rounded'].to_numpy()
+        y = active_df_aggr['dur_ms_rounded'].to_numpy()
         z = active_df_aggr['twr_tof_ds_err'].to_numpy()
 
         # x = active_df_aggr['delay_b_ms_rounded'].to_numpy()
@@ -112,8 +130,19 @@ def export_ping_pong_3d(export_dir):
         # To use a custom hillshading mode, override the built-in shading and pass
         # in the rgb colors of the shaded surface calculated from "shade".
 
+        ax.xaxis.set_major_locator(plt.MultipleLocator(0.25))
+        #ax.xaxis.set_minor_locator(plt.MultipleLocator(0.125))
+        ax.yaxis.set_minor_locator(plt.MultipleLocator(25))
 
-        ax.plot_trisurf(x, y, z, cmap='viridis', edgecolor='none')
+        ax.set_xlabel('Delay Ratio')
+        ax.set_ylabel('Duration [ms]')
+        ax.set_zlabel('Mean Error [cm]')
+
+
+        fig.set_size_inches(5.0, 5.0)
+
+        ax.plot_trisurf(x, y, z, cmap='viridis', edgecolor='none', linewidth=0, antialiased=False)
+        save_and_crop(export_dir + "/ping_pong_3d_ds_err_{}_{}.pdf".format(initiator, responder), crop=True)
         plt.show()
 
 if __name__ == '__main__':
