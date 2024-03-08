@@ -2,16 +2,18 @@
  * Copyright (c) 2017 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
+ * @author Patrick Rathje git@patrickrathje.de
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_IEEE802154_DW1000_H_
 #define ZEPHYR_INCLUDE_DRIVERS_IEEE802154_DW1000_H_
 
-#include <device.h>
+#include <zephyr/device.h>
 
 /**
  * Set the upper 32 bits of the dwt timestamp
- * This method should be called just before the invocation of the tx method and from within the same thread
+ * This method should be called just before the invocation of the tx method and from within the same
+ * thread
  */
 void dwt_set_delayed_tx_short_ts(const struct device *dev, uint32_t short_ts);
 
@@ -45,7 +47,6 @@ uint64_t dwt_calculate_actual_tx_ts(uint32_t planned_short_ts, uint16_t tx_anten
 void dwt_set_frame_filter(const struct device *dev, bool ff_enable, uint8_t ff_type);
 
 uint8_t dwt_rx_ttcko_rc_phase(const struct device *dev);
-
 
 int dwt_readcarrierintegrator(const struct device *dev);
 float dwt_rx_clock_ratio_offset(const struct device *dev);
